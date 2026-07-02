@@ -120,12 +120,27 @@ builder.Services.AddOpenApi(options =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+const int maxRetries = 10;
+var retryDelay = TimeSpan.FromSeconds(3);
+
+for (var attempt = 1; attempt <= maxRetries; attempt++)
 {
-    var writeCtx = scope.ServiceProvider.GetRequiredService<InventoryContext>();
-    var readCtx = scope.ServiceProvider.GetRequiredService<InventoryReadContext>();
-    writeCtx.Database.Migrate();
-    readCtx.Database.EnsureCreated();
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var writeCtx = scope.ServiceProvider.GetRequiredService<InventoryContext>();
+        var readCtx  = scope.ServiceProvider.GetRequiredService<InventoryReadContext>();
+        writeCtx.Database.Migrate();
+        readCtx.Database.EnsureCreated();
+        break;
+    }
+    catch (Exception ex) when (attempt < maxRetries)
+    {
+        logger.LogWarning("DB not ready (attempt {Attempt}/{Max}): {Message}. Retrying in {Delay}s…",
+            attempt, maxRetries, ex.Message, retryDelay.TotalSeconds);
+        await Task.Delay(retryDelay);
+    }
 }
 
 // Enqueue an initial full sync so the read DB is populated on startup

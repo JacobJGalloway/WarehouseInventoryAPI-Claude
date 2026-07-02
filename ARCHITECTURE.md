@@ -41,6 +41,7 @@ A v1.4 release to `main` is considered **complete** when:
 - [ ] Card border semantic language documented in the Claude Design System
 - [ ] CQRS read replica restored — separate read database in place, sync services running, dev/prod configs updated
 - [ ] No regressions introduced to v1.3 functionality
+- [ ] README startup sequence updated — Docker containers must start before the APIs; correct order documented in main README
 
 ---
 
