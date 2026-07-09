@@ -33,4 +33,9 @@ type DriverBOLAssignment struct {
 	TransferReason      *TransferReason `json:"transfer_reason,omitempty"`
 	Notes               *string        `json:"notes,omitempty"`
 	TransferredAt       *time.Time     `json:"transferred_at,omitempty"`
+	// EstimatedRunHours is the dispatcher-supplied run-length estimate captured at
+	// assignment time (same value used for the HOS eligibility check). Combined with
+	// DepartedAt it lets the board derive an estimated fulfillment time for the
+	// deadhead cutoff-window check, without any live location tracking.
+	EstimatedRunHours   *float64       `json:"estimated_run_hours,omitempty"`
 }

@@ -27,6 +27,11 @@ type Equipment struct {
 	HomeWarehouseID string          `json:"home_warehouse_id"`
 	Status          EquipmentStatus `json:"status"`
 	CreatedAt       time.Time       `json:"created_at"`
+	// EmptyReturnUntil is set when equipment finishes a run with no deadhead pairing
+	// secured: it stays Assigned (there is no location tracking to confirm arrival)
+	// until this estimated return time passes, mirroring the driver's Empty Return
+	// ETA. Any explicit UpdateStatus call clears it.
+	EmptyReturnUntil *time.Time `json:"empty_return_until,omitempty"`
 }
 
 type MaintenanceRecord struct {

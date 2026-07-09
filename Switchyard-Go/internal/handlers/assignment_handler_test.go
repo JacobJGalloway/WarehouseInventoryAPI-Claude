@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/JacobJGalloway/switchyard-go/internal/events"
 	"github.com/JacobJGalloway/switchyard-go/internal/models"
@@ -139,8 +140,11 @@ func (r *stubBOLRepo) GetStatusHistory(_ context.Context, _ uuid.UUID) ([]*model
 }
 
 type stubAssignEquipRepo struct {
-	equipment       *models.Equipment
-	updateStatusErr error
+	equipment            *models.Equipment
+	updateStatusErr      error
+	setEmptyReturnErr    error
+	updateStatusCalls    []models.EquipmentStatus
+	setEmptyReturnCalled bool
 }
 
 func (r *stubAssignEquipRepo) GetAll(_ context.Context) ([]*models.Equipment, error) { return nil, nil }
@@ -151,7 +155,8 @@ func (r *stubAssignEquipRepo) GetByID(_ context.Context, _ uuid.UUID) (*models.E
 	return r.equipment, nil
 }
 func (r *stubAssignEquipRepo) Create(_ context.Context, _ *models.Equipment) error { return nil }
-func (r *stubAssignEquipRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ models.EquipmentStatus) error {
+func (r *stubAssignEquipRepo) UpdateStatus(_ context.Context, _ uuid.UUID, status models.EquipmentStatus) error {
+	r.updateStatusCalls = append(r.updateStatusCalls, status)
 	return r.updateStatusErr
 }
 func (r *stubAssignEquipRepo) CreateMaintenanceRecord(_ context.Context, _ *models.MaintenanceRecord) error {
@@ -171,6 +176,30 @@ func (r *stubAssignEquipRepo) ResolveBreakdownRecord(_ context.Context, _ uuid.U
 }
 func (r *stubAssignEquipRepo) GetActiveBreakdownByEquipment(_ context.Context, _ uuid.UUID) (*models.BreakdownRecord, error) {
 	return nil, nil
+}
+func (r *stubAssignEquipRepo) SetEmptyReturnUntil(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	r.setEmptyReturnCalled = true
+	return r.setEmptyReturnErr
+}
+
+type stubAssignPairingRepo struct {
+	pairing *models.PlanBOLPairing
+}
+
+func (r *stubAssignPairingRepo) Create(_ context.Context, _ *models.PlanBOLPairing) error {
+	return nil
+}
+func (r *stubAssignPairingRepo) GetByID(_ context.Context, _ uuid.UUID) (*models.PlanBOLPairing, error) {
+	return r.pairing, nil
+}
+func (r *stubAssignPairingRepo) GetByActiveBOL(_ context.Context, _ uuid.UUID) (*models.PlanBOLPairing, error) {
+	return r.pairing, nil
+}
+func (r *stubAssignPairingRepo) GetEligible(_ context.Context, _ string, _ time.Time) ([]*models.PlanBOLPairing, error) {
+	return nil, nil
+}
+func (r *stubAssignPairingRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ models.PairingStatus) error {
+	return nil
 }
 
 type stubHOSSvc struct{ err error }
@@ -204,7 +233,18 @@ func newAssignHandler(
 	equip *stubAssignEquipRepo,
 	hos *stubHOSSvc,
 ) *AssignmentHandler {
-	return NewAssignmentHandler(assign, driver, bol, equip, hos, &stubWBSvc{}, &stubAssignNotifySvc{})
+	return newAssignHandlerWithPairing(assign, driver, bol, equip, hos, &stubAssignPairingRepo{})
+}
+
+func newAssignHandlerWithPairing(
+	assign *stubAssignRepo,
+	driver *stubDriverRepo,
+	bol *stubBOLRepo,
+	equip *stubAssignEquipRepo,
+	hos *stubHOSSvc,
+	pairing *stubAssignPairingRepo,
+) *AssignmentHandler {
+	return NewAssignmentHandler(assign, driver, bol, equip, hos, &stubWBSvc{}, &stubAssignNotifySvc{}, pairing, 2.0)
 }
 
 // --- Get ---
@@ -268,6 +308,43 @@ func TestAssignmentCreate_EquipmentNotAvailable_Returns409(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Create(rec, req)
 	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestAssignmentCreate_EmptyReturnWindowElapsed_ReconciledToAvailable(t *testing.T) {
+	bol := &models.PlanBOLRecord{ID: uuid.New(), Status: models.PlanBOLStatusValidated}
+	past := time.Now().Add(-1 * time.Minute)
+	equip := &models.Equipment{ID: uuid.New(), Status: models.EquipmentStatusAssigned, EmptyReturnUntil: &past}
+	equipRepo := &stubAssignEquipRepo{equipment: equip}
+	h := newAssignHandler(&stubAssignRepo{}, &stubDriverRepo{}, &stubBOLRepo{bol: bol}, equipRepo, &stubHOSSvc{})
+	body := map[string]any{
+		"driver_id":    uuid.New().String(),
+		"plan_bol_id":  bol.ID.String(),
+		"equipment_id": equip.ID.String(),
+		"state_code":   "IL",
+		"cycle_label":  "60h/7d",
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/assignment", postBody(t, body))
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+	assert.Equal(t, http.StatusCreated, rec.Code, "elapsed empty-return window should reconcile equipment to Available and allow the new assignment")
+}
+
+func TestAssignmentCreate_EmptyReturnWindowNotYetElapsed_Returns409(t *testing.T) {
+	bol := &models.PlanBOLRecord{ID: uuid.New(), Status: models.PlanBOLStatusValidated}
+	future := time.Now().Add(1 * time.Hour)
+	equip := &models.Equipment{ID: uuid.New(), Status: models.EquipmentStatusAssigned, EmptyReturnUntil: &future}
+	h := newAssignHandler(&stubAssignRepo{}, &stubDriverRepo{}, &stubBOLRepo{bol: bol}, &stubAssignEquipRepo{equipment: equip}, &stubHOSSvc{})
+	body := map[string]any{
+		"driver_id":    uuid.New().String(),
+		"plan_bol_id":  bol.ID.String(),
+		"equipment_id": equip.ID.String(),
+		"state_code":   "IL",
+		"cycle_label":  "60h/7d",
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/assignment", postBody(t, body))
+	rec := httptest.NewRecorder()
+	h.Create(rec, req)
+	assert.Equal(t, http.StatusConflict, rec.Code, "equipment still within its empty-return window should not be assignable")
 }
 
 func TestAssignmentCreate_HOSViolation_Returns422(t *testing.T) {
@@ -449,6 +526,32 @@ func TestAssignmentFulfill_Success_Returns204(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Fulfill(rec, req)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+func TestAssignmentFulfill_NoPairing_SetsEmptyReturnTimer(t *testing.T) {
+	assign := &models.DriverBOLAssignment{ID: uuid.New(), PlanBOLID: uuid.New()}
+	equip := &stubAssignEquipRepo{}
+	h := newAssignHandlerWithPairing(&stubAssignRepo{assignment: assign}, &stubDriverRepo{}, &stubBOLRepo{bol: &models.PlanBOLRecord{}}, equip, &stubHOSSvc{}, &stubAssignPairingRepo{})
+	req := withIDParam(httptest.NewRequest(http.MethodPatch, "/", nil), assign.ID.String())
+	rec := httptest.NewRecorder()
+	h.Fulfill(rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.True(t, equip.setEmptyReturnCalled, "no pairing secured — equipment should get an empty-return timer, not an immediate release")
+	assert.Empty(t, equip.updateStatusCalls)
+}
+
+func TestAssignmentFulfill_PairingSecured_ReleasesEquipmentImmediately(t *testing.T) {
+	assign := &models.DriverBOLAssignment{ID: uuid.New(), PlanBOLID: uuid.New()}
+	equip := &stubAssignEquipRepo{}
+	pairing := &stubAssignPairingRepo{pairing: &models.PlanBOLPairing{ID: uuid.New(), Status: models.PairingStatusConfirmed}}
+	h := newAssignHandlerWithPairing(&stubAssignRepo{assignment: assign}, &stubDriverRepo{}, &stubBOLRepo{bol: &models.PlanBOLRecord{}}, equip, &stubHOSSvc{}, pairing)
+	req := withIDParam(httptest.NewRequest(http.MethodPatch, "/", nil), assign.ID.String())
+	rec := httptest.NewRecorder()
+	h.Fulfill(rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+	assert.False(t, equip.setEmptyReturnCalled, "pairing secured — equipment continues immediately, no empty-return timer")
+	require.Len(t, equip.updateStatusCalls, 1)
+	assert.Equal(t, models.EquipmentStatusAvailable, equip.updateStatusCalls[0])
 }
 
 // --- ConfirmDeadhead ---

@@ -34,11 +34,16 @@ func main() {
 	viper.SetDefault("DEADHEAD_SEARCH_WINDOW_HOURS", 2.0)
 	viper.SetDefault("LOADING_AGE_THRESHOLD_HOURS", 4.0)
 	viper.SetDefault("DEFAULT_CYCLE_LABEL", "60h/7d")
+	viper.SetDefault("EMPTY_RETURN_TRANSIT_HOURS", 2.0)
 	viper.SetDefault("REACT_BASE_URL", "https://localhost:5173")
 
 	dbURL := viper.GetString("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is required")
+	}
+	readDBURL := viper.GetString("READ_DATABASE_URL")
+	if readDBURL == "" {
+		log.Fatal("READ_DATABASE_URL is required")
 	}
 
 	// --- Migrations ---
@@ -65,6 +70,15 @@ func main() {
 		log.Fatalf("pgxpool: %v", err)
 	}
 	defer pool.Close()
+
+	// Read replica — logically replicated via native Postgres publication/subscription
+	// from a genuinely separate instance (see docker-compose.yml switchyard-pg-read).
+	// DR-scoped: isolates read queries from a bad write or corruption on the primary.
+	readPool, err := pgxpool.New(context.Background(), readDBURL)
+	if err != nil {
+		log.Fatalf("read pgxpool: %v", err)
+	}
+	defer readPool.Close()
 
 	// --- Repositories ---
 	driverRepo := pgdb.NewDriverRepo(pool)
@@ -114,6 +128,9 @@ func main() {
 		viper.GetFloat64("DEADHEAD_SEARCH_WINDOW_HOURS"),
 		viper.GetFloat64("LOADING_AGE_THRESHOLD_HOURS"),
 		viper.GetString("DEFAULT_CYCLE_LABEL"),
+		pairingRepo,
+		viper.GetFloat64("DEADHEAD_CUTOFF_MINUTES"),
+		viper.GetFloat64("EMPTY_RETURN_TRANSIT_HOURS"),
 	)
 
 	// --- Event handler (sole M2M token owner) ---
@@ -140,12 +157,12 @@ func main() {
 	// --- HTTP handlers ---
 	planBOLHandler := handlers.NewPlanBOLHandler(routePlannerSvc, bolRepo, logClient)
 	driverHandler := handlers.NewDriverHandler(driverRepo, bolRepo, hosRepo, assignRepo, hosSvc, logClient, tmpl)
-	assignmentHandler := handlers.NewAssignmentHandler(assignRepo, driverRepo, bolRepo, equipRepo, hosSvc, wbSvc, notifySvc)
+	assignmentHandler := handlers.NewAssignmentHandler(assignRepo, driverRepo, bolRepo, equipRepo, hosSvc, wbSvc, notifySvc, pairingRepo, viper.GetFloat64("EMPTY_RETURN_TRANSIT_HOURS"))
 	equipmentHandler := handlers.NewEquipmentHandler(equipRepo, notifySvc)
 	deadheadHandler := handlers.NewDeadheadHandler(pairingRepo, viper.GetFloat64("DEADHEAD_WINDOW_HOURS"), viper.GetFloat64("DEADHEAD_CUTOFF_MINUTES"))
 	invoiceHandler := handlers.NewInvoiceHandler(invoiceRepo)
 	whiteboardHandler := handlers.NewWhiteboardHandler(wbSvc, tmpl, viper.GetString("REACT_BASE_URL"))
-	analyticsRepo := pgdb.NewAnalyticsRepo(pool)
+	analyticsRepo := pgdb.NewAnalyticsRepo(readPool)
 	analyticsHandler := handlers.NewAnalyticsHandler(analyticsRepo)
 	regionalInvHandler := handlers.NewRegionalInventoryHandler(invClient, warehouseRepo)
 

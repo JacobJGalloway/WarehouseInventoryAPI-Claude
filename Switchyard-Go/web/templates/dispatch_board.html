@@ -205,7 +205,7 @@
       padding: 8px 10px;
     }
     .card.urgent    { border-color: var(--danger); background: var(--danger-bg); }
-    .card.long-wait { border-color: var(--warn); }
+    .card.long-wait, .card.pairing-at-risk { border-color: var(--warn); }
     .card.is-ready  { border-left: 3px solid var(--ok); }
 
     .ct { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
@@ -454,19 +454,12 @@
       {{range .Delivered}}
       <div class="card">
         <div class="chip-row">
-          <span class="chip chip-driver">Driver</span>
-          <span class="chip-val">{{.Driver.Name}}</span>
-        </div>
-        <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
-        <div class="chip-row">
-          <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
-          <span class="chip-val">{{.Equipment.UnitID}}</span>
-        </div>
-        <div class="cs">Dead-head window:</div>
-        <div class="cdown" data-expires="{{.DeadheadWindowExpiresAt.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</div>
+        <div class="cs">{{.PlanBOL.OriginatingWhID}}</div>
+        <span class="pill pill-neutral"><span class="pill-dot"></span>Pending close-out</span>
+        <div class="cs" style="margin-top:5px">Last stop confirmed {{.LastStopConfirmedAt.Format "Jan 2 15:04"}}</div>
       </div>
       {{else}}<div class="empty">—</div>{{end}}
     </div>
@@ -521,6 +514,20 @@
         {{range .Available.Resting}}{{template "card-resting" .}}
         {{else}}<div class="empty">No drivers resting</div>{{end}}
       </div>
+
+      {{/* Empty Return — driver has no current assignment and no dead-head pairing
+           secured; physically returning to their BOL's originating warehouse. */}}
+      <details class="sub-details" {{if .Available.EmptyReturn}}open{{end}}>
+        <summary>
+          <div class="sub-hd">
+            Empty Return <span class="badge">{{len .Available.EmptyReturn}}</span>
+          </div>
+        </summary>
+        <div class="sub-details-body">
+          {{range .Available.EmptyReturn}}{{template "card-emptyreturn" .}}
+          {{else}}<div class="empty">No drivers on empty return</div>{{end}}
+        </div>
+      </details>
     </div>
   </div>
 
@@ -635,7 +642,7 @@ function toggleAvailable() {
 {{end}}
 
 {{define "card-indelivery"}}
-<div class="card">
+<div class="card{{if .PairingAtRisk}} pairing-at-risk{{end}}">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -660,6 +667,21 @@ function toggleAvailable() {
       Stopped {{.MandatedStopAt.Format "15:04"}}{{with .ELDStopRef}} &bull; ELD: {{.}}{{end}}
     </div>
   {{end}}
+  {{if .PairingAtRisk}}
+    <span class="pill pill-warn" style="margin-left:4px"><span class="pill-dot"></span>No pairing secured</span>
+  {{end}}
+</div>
+{{end}}
+
+{{define "card-emptyreturn"}}
+<div class="card">
+  <div class="chip-row">
+    <span class="chip chip-driver">Driver</span>
+    <span class="chip-val">{{.Driver.Name}}</span>
+  </div>
+  <div class="cs">Returning to {{.OriginWarehouseID}}</div>
+  <div class="cs">ETA:</div>
+  <div class="cdown" data-expires="{{.ETA.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</div>
 </div>
 {{end}}
 

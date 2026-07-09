@@ -83,11 +83,11 @@ No new domain entities required. This is a **board state and routing logic** cha
 - The Available sub-section reads from existing driver/assignment data filtered by the new status
 
 ### Definition of done for this feature
-- [ ] `EmptyReturn` status (or equivalent) added to driver status enum
-- [ ] Driver routes to Empty Return sub-section on last stop confirmation when no deadhead pairing is active
-- [ ] ETA is visible on the Empty Return card
-- [ ] Driver transitions out of Empty Return on arrival or new BOL assignment
-- [ ] Demo seed includes at least one driver in Empty Return state for demo visibility
+- [x] `EmptyReturn` status (or equivalent) added to driver status enum — **implemented as derived board state instead**, not a persisted enum value. Keeps faith with CLAUDE.md's "board columns are derived" rule (`WhiteboardService.GetBoardState`, `Available.EmptyReturn`), same pattern as the existing Available/Resting split.
+- [x] Driver routes to Empty Return sub-section on last stop confirmation when no deadhead pairing is active
+- [x] ETA is visible on the Empty Return card — fixed transit-time constant (`EMPTY_RETURN_TRANSIT_HOURS`) for v1.4; `emptyReturnETA` threads the origin warehouse ID through unused so a distance-based calculation can replace it later without a call-site change
+- [ ] Driver transitions out of Empty Return on arrival or new BOL assignment — **known gap, pre-existing**: `AssignmentRepository.GetAllActive` returns every assignment with `deadhead_confirmed_at IS NULL`, so a fulfilled assignment stays in Empty Return until its own `ConfirmDeadhead` call, independent of whether the driver has since taken a new assignment. This was already true of the old Delivered-card design; not introduced or fixed this session.
+- [ ] Demo seed includes at least one driver in Empty Return state for demo visibility — pending
 
 ---
 
@@ -114,12 +114,12 @@ Last stop confirmation is the event that triggers decoupling. At that moment:
 3. Equipment assignment to BOL is closed; equipment status transitions to available or maintenance
 
 ### Definition of done for this feature
-- [ ] BOL close-out card in Delivered shows BOL details only — no driver or equipment
-- [ ] Driver decouples from BOL at last stop confirmation
-- [ ] Equipment decouples from BOL at last stop confirmation
-- [ ] Driver routing post-decoupling follows deadhead pairing state (see Section 5)
-- [ ] Close-out card archives on dispatch review completion
-- [ ] Demo seed includes at least one BOL in Delivered close-out state
+- [x] BOL close-out card in Delivered shows BOL details only — no driver or equipment
+- [x] Driver decouples from BOL at last stop confirmation
+- [x] Equipment decouples from BOL at last stop confirmation — `AssignmentHandler.Fulfill` releases immediately if a dead-head pairing is secured, otherwise sets `Equipment.EmptyReturnUntil` (mirrors the driver's Empty Return ETA, since equipment has no location tracking of its own — see `reconcileEquipmentAvailability`, checked lazily on next `Create`/`Transfer`)
+- [x] Driver routing post-decoupling follows deadhead pairing state (see Section 5)
+- [x] Close-out card archives on dispatch review completion — via the existing `ConfirmDeadhead` action, unchanged this session (assignment drops out of `GetAllActive` once `deadhead_confirmed_at` is set)
+- [ ] Demo seed includes at least one BOL in Delivered close-out state — pending
 
 ---
 
@@ -156,12 +156,15 @@ Last stop confirmed
 > Confirm with Jacob: should the board surface a visual warning when a driver enters the `DEADHEAD_CUTOFF_MINUTES` window without an active pairing? This is a dispatch UX decision — helpful for demo but needs product sign-off on placement and urgency level.
 
 ### Definition of done for this feature
-- [ ] `DEADHEAD_CUTOFF_MINUTES` is environment-configurable
-- [ ] Board surfaces pairing alert when driver enters cutoff window without active pairing
-- [ ] Last stop confirmation with active pairing routes driver to deadhead run
-- [ ] Last stop confirmation without pairing voids contract and routes driver to Empty Return
-- [ ] BOL transitions to Delivered close-out card in both scenarios
-- [ ] Demo seed includes at least one BOL at or near the cutoff window for demo visibility
+- [x] `DEADHEAD_CUTOFF_MINUTES` is environment-configurable — already was (`viper.SetDefault`); now also documented in `.env`/`.env.example`/README
+- [x] Board surfaces pairing alert when driver enters cutoff window without active pairing — `InDeliveryCard.PairingAtRisk`, warn-tone border (`.pairing-at-risk`, reuses the existing warn variant per the card border language rules — no new decorative class), plus an `AlertTypePairingAtRisk` alert. Estimated fulfillment is derived from `DepartedAt + EstimatedRunHours` (new field, captured at assignment time) since there's no live location tracking.
+- [x] Last stop confirmation with active pairing routes driver to deadhead run — no Empty Return card; driver stays off-board until dispatch calls `ConfirmDeadhead`
+- [x] Last stop confirmation without pairing voids contract and routes driver to Empty Return
+- [x] BOL transitions to Delivered close-out card in both scenarios
+- [ ] Demo seed includes at least one BOL at or near the cutoff window for demo visibility — pending
+
+### Known deviation — transfer-deadhead segments
+Mid-route custody transfers (`AssignmentHandler.Transfer`) route the *outgoing* driver straight to Empty Return without a pairing lookup — dead-head pairings are keyed by `active_bol_id`, not by driver/assignment segment, so there's no clean way to distinguish the outgoing driver's personal pairing need from the incoming driver's BOL. Scoped out of v1.4; revisit if a pairing-per-assignment model is ever needed.
 
 ---
 

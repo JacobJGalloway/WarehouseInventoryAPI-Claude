@@ -147,6 +147,9 @@ func (r *wbEquipRepo) CreateBreakdownRecord(_ context.Context, _ *models.Breakdo
 func (r *wbEquipRepo) ResolveBreakdownRecord(_ context.Context, _ uuid.UUID, _ time.Time, _ *float64) error {
 	panic("not implemented")
 }
+func (r *wbEquipRepo) SetEmptyReturnUntil(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	panic("not implemented")
+}
 
 type wbHOSRepo struct {
 	windows map[uuid.UUID]*models.HOSWindow
@@ -168,14 +171,44 @@ func (r *wbHOSRepo) UpdateWindow(_ context.Context, _ *models.HOSWindow) error {
 	panic("not implemented")
 }
 
+type wbPairingRepo struct {
+	byActiveBOL map[uuid.UUID]*models.PlanBOLPairing
+}
+
+func (r *wbPairingRepo) GetByActiveBOL(_ context.Context, activeBOLID uuid.UUID) (*models.PlanBOLPairing, error) {
+	if r == nil {
+		return nil, nil
+	}
+	return r.byActiveBOL[activeBOLID], nil
+}
+func (r *wbPairingRepo) Create(_ context.Context, _ *models.PlanBOLPairing) error { panic("not implemented") }
+func (r *wbPairingRepo) GetByID(_ context.Context, _ uuid.UUID) (*models.PlanBOLPairing, error) {
+	panic("not implemented")
+}
+func (r *wbPairingRepo) GetEligible(_ context.Context, _ string, _ time.Time) ([]*models.PlanBOLPairing, error) {
+	panic("not implemented")
+}
+func (r *wbPairingRepo) UpdateStatus(_ context.Context, _ uuid.UUID, _ models.PairingStatus) error {
+	panic("not implemented")
+}
+
 // newWBService constructs a WhiteboardService wired with the given stubs.
-// Default thresholds match the architecture env var defaults.
+// Default thresholds match the architecture env var defaults. Uses an empty
+// pairing repo (no pairings) — use newWBServiceWithPairing for tests that
+// need to exercise pairing-aware routing (Empty Return, pairing-at-risk).
 func newWBService(dr *wbDriverRepo, ar *wbAssignRepo, br *wbBOLRepo, er *wbEquipRepo, hr *wbHOSRepo) *WhiteboardService {
+	return newWBServiceWithPairing(dr, ar, br, er, hr, &wbPairingRepo{byActiveBOL: map[uuid.UUID]*models.PlanBOLPairing{}})
+}
+
+func newWBServiceWithPairing(dr *wbDriverRepo, ar *wbAssignRepo, br *wbBOLRepo, er *wbEquipRepo, hr *wbHOSRepo, pr *wbPairingRepo) *WhiteboardService {
 	return NewWhiteboardService(dr, ar, br, er, hr,
 		2.0,  // warningThresholdHours
 		2.0,  // deadheadSearchWindowHours
 		4.0,  // loadingAgeThresholdHours
 		"60h/7d",
+		pr,
+		30.0, // cutoffMinutes
+		2.0,  // emptyReturnTransitHours
 	)
 }
 
@@ -522,11 +555,134 @@ func TestGetBoardState_Fulfilled_MovesToDelivered(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, board.InDelivery.InTransit)
-	require.Len(t, board.Delivered, 1)
-	card := board.Delivered[0]
-	assert.Equal(t, driverID, card.Driver.ID)
-	// Deadhead window = fulfilled_at + 2h (search window default in newWBService)
-	assert.WithinDuration(t, fulfilled.Add(2*time.Hour), card.DeadheadWindowExpiresAt, time.Second)
+	require.Len(t, board.Delivered, 1, "Delivered is a BOL-only close-out card")
+	deliveredCard := board.Delivered[0]
+	assert.Equal(t, bolID, deliveredCard.PlanBOL.ID)
+	assert.Equal(t, fulfilled.Unix(), deliveredCard.LastStopConfirmedAt.Unix())
+
+	// No pairing secured — driver routes to Empty Return, not Delivered.
+	require.Len(t, board.Available.EmptyReturn, 1)
+	erCard := board.Available.EmptyReturn[0]
+	assert.Equal(t, driverID, erCard.Driver.ID)
+	assert.Equal(t, fulfilled.Unix(), erCard.LastStopConfirmedAt.Unix())
+	// ETA = fulfilled_at + emptyReturnTransitHours (2h default in newWBService)
+	assert.WithinDuration(t, fulfilled.Add(2*time.Hour), erCard.ETA, time.Second)
+	// Pairing window = fulfilled_at + deadheadSearchWindow (2h default in newWBService)
+	assert.WithinDuration(t, fulfilled.Add(2*time.Hour), erCard.PairingWindowExpiresAt, time.Second)
+}
+
+func TestGetBoardState_Fulfilled_PairingSecured_NoEmptyReturn(t *testing.T) {
+	driverID := uuid.New()
+	bolID := uuid.New()
+	equipID := uuid.New()
+	now := time.Now()
+	departed := now.Add(-3 * time.Hour)
+	fulfilled := now.Add(-30 * time.Minute)
+
+	dr, ar, br, er, hr := emptyRepos()
+	dr.byID[driverID] = &models.Driver{ID: driverID, Name: "Jordan", LicenseState: "IL"}
+	br.byID[bolID] = &models.PlanBOLRecord{ID: bolID, Status: models.PlanBOLStatusFulfilled}
+	er.byID[equipID] = &models.Equipment{ID: equipID, UnitID: "TRUCK-03"}
+	ar.active = []*models.DriverBOLAssignment{{
+		ID: uuid.New(), DriverID: driverID, PlanBOLID: bolID, EquipmentID: equipID,
+		AssignedAt:  now.Add(-4 * time.Hour),
+		DepartedAt:  &departed,
+		FulfilledAt: &fulfilled,
+	}}
+	pr := &wbPairingRepo{byActiveBOL: map[uuid.UUID]*models.PlanBOLPairing{
+		bolID: {ID: uuid.New(), ActiveBOLID: bolID, Status: models.PairingStatusConfirmed},
+	}}
+
+	board, err := newWBServiceWithPairing(dr, ar, br, er, hr, pr).GetBoardState(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, board.Delivered, 1, "close-out card still appears regardless of pairing state")
+	assert.Empty(t, board.Available.EmptyReturn, "secured pairing routes the driver to the deadhead run, not Empty Return")
+}
+
+func TestGetBoardState_PairingAtRisk_NoPairing_SetsFlag(t *testing.T) {
+	// cutoffMinutes = 30m (newWBService default). EstimatedRunHours puts estimated
+	// fulfillment 10 minutes from now — inside the cutoff window — with no pairing.
+	driverID := uuid.New()
+	bolID := uuid.New()
+	equipID := uuid.New()
+	now := time.Now()
+	departed := now.Add(-3*time.Hour + 10*time.Minute)
+	estimatedRunHours := 3.0
+
+	dr, ar, br, er, hr := emptyRepos()
+	dr.byID[driverID] = &models.Driver{ID: driverID, Name: "Riley", LicenseState: "IL"}
+	br.byID[bolID] = &models.PlanBOLRecord{ID: bolID, Status: models.PlanBOLStatusSubmitted}
+	er.byID[equipID] = &models.Equipment{ID: equipID, UnitID: "TRUCK-20"}
+	ar.active = []*models.DriverBOLAssignment{{
+		ID: uuid.New(), DriverID: driverID, PlanBOLID: bolID, EquipmentID: equipID,
+		AssignedAt:        now.Add(-4 * time.Hour),
+		DepartedAt:        &departed,
+		EstimatedRunHours: &estimatedRunHours,
+	}}
+
+	board, err := newWBService(dr, ar, br, er, hr).GetBoardState(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, board.InDelivery.InTransit, 1)
+	assert.True(t, board.InDelivery.InTransit[0].PairingAtRisk)
+}
+
+func TestGetBoardState_PairingAtRisk_PairingSecured_NoFlag(t *testing.T) {
+	driverID := uuid.New()
+	bolID := uuid.New()
+	equipID := uuid.New()
+	now := time.Now()
+	departed := now.Add(-3*time.Hour + 10*time.Minute)
+	estimatedRunHours := 3.0
+
+	dr, ar, br, er, hr := emptyRepos()
+	dr.byID[driverID] = &models.Driver{ID: driverID, Name: "Riley", LicenseState: "IL"}
+	br.byID[bolID] = &models.PlanBOLRecord{ID: bolID, Status: models.PlanBOLStatusSubmitted}
+	er.byID[equipID] = &models.Equipment{ID: equipID, UnitID: "TRUCK-20"}
+	ar.active = []*models.DriverBOLAssignment{{
+		ID: uuid.New(), DriverID: driverID, PlanBOLID: bolID, EquipmentID: equipID,
+		AssignedAt:        now.Add(-4 * time.Hour),
+		DepartedAt:        &departed,
+		EstimatedRunHours: &estimatedRunHours,
+	}}
+	pr := &wbPairingRepo{byActiveBOL: map[uuid.UUID]*models.PlanBOLPairing{
+		bolID: {ID: uuid.New(), ActiveBOLID: bolID, Status: models.PairingStatusProposed},
+	}}
+
+	board, err := newWBServiceWithPairing(dr, ar, br, er, hr, pr).GetBoardState(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, board.InDelivery.InTransit, 1)
+	assert.False(t, board.InDelivery.InTransit[0].PairingAtRisk)
+}
+
+func TestGetBoardState_PairingAtRisk_OutsideCutoffWindow_NoFlag(t *testing.T) {
+	// Estimated fulfillment is 2 hours out — well outside the 30m cutoff — so no
+	// risk flag even with no pairing.
+	driverID := uuid.New()
+	bolID := uuid.New()
+	equipID := uuid.New()
+	now := time.Now()
+	departed := now.Add(-1 * time.Hour)
+	estimatedRunHours := 3.0
+
+	dr, ar, br, er, hr := emptyRepos()
+	dr.byID[driverID] = &models.Driver{ID: driverID, Name: "Riley", LicenseState: "IL"}
+	br.byID[bolID] = &models.PlanBOLRecord{ID: bolID, Status: models.PlanBOLStatusSubmitted}
+	er.byID[equipID] = &models.Equipment{ID: equipID, UnitID: "TRUCK-20"}
+	ar.active = []*models.DriverBOLAssignment{{
+		ID: uuid.New(), DriverID: driverID, PlanBOLID: bolID, EquipmentID: equipID,
+		AssignedAt:        now.Add(-2 * time.Hour),
+		DepartedAt:        &departed,
+		EstimatedRunHours: &estimatedRunHours,
+	}}
+
+	board, err := newWBService(dr, ar, br, er, hr).GetBoardState(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, board.InDelivery.InTransit, 1)
+	assert.False(t, board.InDelivery.InTransit[0].PairingAtRisk)
 }
 
 func TestGetBoardState_EquipmentRouting(t *testing.T) {
@@ -864,12 +1020,15 @@ func TestGetAlerts_ExpiringDeadhead_GeneratesAlert(t *testing.T) {
 		FulfilledAt: &fulfilled,
 	}}
 
+	// No pairing secured — driver routes to Empty Return, and this alert now
+	// reads from Available.EmptyReturn's PairingWindowExpiresAt rather than
+	// the old Delivered-card countdown (which no longer carries a driver at all).
 	alerts, err := newWBService(dr, ar, br, er, hr).GetAlerts(context.Background())
 	require.NoError(t, err)
 	require.Len(t, alerts, 1)
 	assert.Equal(t, AlertTypeExpiringDeadhead, alerts[0].AlertType)
-	require.NotNil(t, alerts[0].AssignmentID)
-	assert.Equal(t, assignID, *alerts[0].AssignmentID)
+	require.NotNil(t, alerts[0].DriverID)
+	assert.Equal(t, driverID, *alerts[0].DriverID)
 }
 
 func TestGetAlerts_NonExpiringDeadhead_NoAlert(t *testing.T) {

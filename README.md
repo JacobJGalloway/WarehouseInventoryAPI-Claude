@@ -170,3 +170,4 @@ go test ./...
 - [ ] Read replica health endpoint — expose sync lag and InSync status
 - [ ] Extract User Management to a dedicated identity service when the data layer splits
 - [ ] Scalar branding — Switchyard logo and name above the API title; currently blocked by Scalar's limited logo support in the .NET package
+- [ ] Equipment relocation / home-warehouse reassignment — `home_warehouse_id` is set once at equipment creation and never mutated anywhere (confirmed via `Resolve()`, which only flips status back to `Available`). Dispatchers currently work around this by reporting a fake breakdown, towing the unit to the desired warehouse, and resolving it there — but the resolve flow doesn't actually update `home_warehouse_id`, so the record still claims its original home base. Extend the "Available" check to validate equipment was made available *at* its recorded `home_warehouse_id`, and/or add a real relocation endpoint that updates the field.
