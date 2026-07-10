@@ -17,6 +17,8 @@ Auth is Auth0. Roles: Employee (read-only) / Manager (BOL create + modify) / Adm
 
 The pilot client is **Digital Parts Logistics Company**. The platform is multi-tenant; tenants override four CSS variables (see Theming section) to re-skin the chrome.
 
+The current architecture is sized for this footprint — a single pilot client, one warehouse network, demo-length sessions — deliberately, not by oversight. Known points where a larger footprint would require real work (Auth0 tier, read-replica health monitoring, User Management extraction) are tracked with their specific triggers in the main [`README.md`](README.md#scaling-posture)'s Scaling Posture section rather than duplicated here.
+
 ---
 
 ## Tokens CSS File

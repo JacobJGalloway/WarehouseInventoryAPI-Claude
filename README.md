@@ -53,6 +53,14 @@ Both .NET APIs maintain a read replica synced asynchronously after every write:
 - `SaveChangesInterceptor` → `Channel<SyncJob>` → `BackgroundService` (full table resync per changed entity type)
 - `GET /api/Audit` on each API reports write vs read row counts with an `InSync` flag
 
+### Scaling Posture
+The current architecture is sized for the platform's current footprint — a pilot client, single warehouse network, demo-length sessions. It is not under-built for that scale, and it is not over-built for a scale that doesn't exist yet either. Known points where a larger footprint would require real work are identified and deliberately deferred, not overlooked — each is tracked in [Backlog](#backlog) with the specific trigger that would make it worth doing:
+- **Auth0 Refresh Token Rotation** — blocked by the free tier today; revisit if/when there's a reason to move to a paid tier.
+- **Read replica health monitoring** — `GET /api/Audit` is sufficient for manual/on-demand checks at current write volume; an automated alerting endpoint becomes worth building once sync lag risk is unattended (production, multiple concurrent operators).
+- **User Management as its own service** — currently lives inside `Switchyard.LogisticsAPI`; extraction becomes worth the cost once the data layer actually splits, not before.
+
+Treat items in Backlog without an explicit trigger as plain feature gaps (not yet built), not scale deferrals — the two categories are deliberately kept distinct.
+
 ### Data Layer Pattern
 - **Unit of Work** over repositories — services depend on `IUnitOfWork`
 - **Repositories** — separate write context (CUD) and read context (queries)
@@ -179,8 +187,13 @@ go test -cover ./...
 - [x] CQRS read replica hardening — separate Postgres read replica instances stood up for both .NET (`switchyard_inventory_read`, `switchyard_logistics_read`) and Go (`switchyard_read`, cross-instance logical replication)
 
 ### Backlog
-- [ ] Auth0 Refresh Token Rotation — **known limitation, accepted for v1.4** (2026-07-10). Blocked by the free tier; the tenant's current plan doesn't include Refresh Token Rotation as a dashboard feature. Code side is already done (`useRefreshTokens: true`, `offline_access` scope implied, no fixed-expiry secret logic remains — see `Switchyard.UI/src/main.tsx`), which already solves the "session dies mid-demo on secret expiry" problem standard (non-rotating) refresh tokens were meant to fix. Rotation itself only adds defense-in-depth against a leaked refresh token — accepted as low-risk for now since demos run well under 10 minutes and the initial access token is valid for 30. Revisit if/when the project moves to a paid Auth0 tier (or another provider) for any reason — validate whether Rotation is still worth enabling at that point, don't assume it automatically is.
-- [ ] Read replica health endpoint — expose sync lag and InSync status
-- [ ] Extract User Management to a dedicated identity service when the data layer splits
+Two kinds of items live here: **scale deferrals** (the architecture already accounts for these; they're deliberately not built until a specific trigger makes them worth the cost — see [Scaling Posture](#scaling-posture)) and **feature gaps** (not scale-related, just not built yet or blocked by an external constraint).
+
+**Scale deferrals**
+- [ ] Auth0 Refresh Token Rotation — **known limitation, accepted for v1.4** (2026-07-10). Blocked by the free tier; the tenant's current plan doesn't include Refresh Token Rotation as a dashboard feature. Code side is already done (`useRefreshTokens: true`, `offline_access` scope implied, no fixed-expiry secret logic remains — see `Switchyard.UI/src/main.tsx`), which already solves the "session dies mid-demo on secret expiry" problem standard (non-rotating) refresh tokens were meant to fix. Rotation itself only adds defense-in-depth against a leaked refresh token — accepted as low-risk for now since demos run well under 10 minutes and the initial access token is valid for 30. **Trigger to revisit:** the project moves to a paid Auth0 tier (or another provider) for any reason — validate whether Rotation is still worth enabling at that point, don't assume it automatically is.
+- [ ] Read replica health endpoint — `GET /api/Audit` already reports write vs read row counts with an `InSync` flag, which is sufficient for manual/on-demand checks at current write volume. **Trigger to revisit:** sync lag risk becomes unattended (production deployment, multiple concurrent operators) — at that point expose automated alerting on lag, not just a point-in-time count comparison.
+- [ ] Extract User Management to a dedicated identity service — currently lives inside `Switchyard.LogisticsAPI`. **Trigger to revisit:** the data layer actually splits (separate databases/services per domain); premature before that.
+
+**Feature gaps**
 - [ ] Scalar branding — Switchyard logo and name above the API title; currently blocked by Scalar's limited logo support in the .NET package
 - [ ] Equipment relocation / home-warehouse reassignment — `home_warehouse_id` is set once at equipment creation and never mutated anywhere (confirmed via `Resolve()`, which only flips status back to `Available`). Dispatchers currently work around this by reporting a fake breakdown, towing the unit to the desired warehouse, and resolving it there — but the resolve flow doesn't actually update `home_warehouse_id`, so the record still claims its original home base. Extend the "Available" check to validate equipment was made available *at* its recorded `home_warehouse_id`, and/or add a real relocation endpoint that updates the field.
