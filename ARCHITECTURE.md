@@ -35,7 +35,7 @@ A v1.4 release to `main` is considered **complete** when:
 - [ ] Empty Return sub-section is present on the board; drivers on empty return appear with ETA visible
 - [ ] Delivered column operates as a dispatch review/close-out state; driver and equipment decouple from BOL at last stop confirmation
 - [ ] Deadhead pairing enforces `DEADHEAD_CUTOFF_MINUTES` window; missed window routes driver to Empty Return
-- [ ] Auth0 sessions use rolling refresh tokens; fixed-expiry client secrets removed
+- [ ] Auth0 sessions use rolling refresh tokens; fixed-expiry client secrets removed — code-side done (`useRefreshTokens: true`, no fixed-expiry logic remaining); dashboard-side *rotation* specifically is blocked by Auth0's free tier — see §6 Known blocker for the fallback rationale
 - [ ] WCAG AA color contrast passes in both light and dark themes
 - [ ] ARIA audit complete — board columns, cards, icon-only buttons, skip-nav
 - [ ] Card border semantic language documented in the Claude Design System
@@ -190,13 +190,22 @@ Configuration and token strategy change only. No schema changes. No new API endp
 
 ### Human checkpoint
 > Confirm with Jacob: prefer `cacheLocation: 'memory'` (safer — session lost on page refresh) or `cacheLocation: 'localstorage'` (session persists across refreshes — more demo-friendly but less secure)? Product call, not a code call.
+>
+> **Resolved:** `cacheLocation="localstorage"` — demo-friendliness prioritized over the stricter option.
+
+### Known blocker (2026-07-10)
+**Refresh Token Rotation is a paid-tier-only Auth0 dashboard feature** — not available on the free tier this project runs on. This blocks the dashboard-side half of this feature outright; it is not something the application code can work around.
+
+Fallback: the code-side configuration (`useRefreshTokens: true` + the `offline_access` scope it implies) already solves the actual problem this feature exists for — sessions no longer die outright when a fixed-expiry client secret expires, because the SDK silently exchanges the refresh token for a new access token in the background. What's specifically unavailable without a paid tier is *rotation* (issuing a new refresh token on every use and invalidating the old one) — a defense-in-depth property against a stolen/leaked refresh token, not the core "don't log users out mid-session" problem. Standard (non-rotating) refresh tokens are enough for this project's actual goal.
+
+**Decision needed from Jacob:** accept standard (non-rotating) refresh tokens as sufficient and close this out as-is, or treat Rotation as a hard requirement and revisit if/when there's a business reason to upgrade the Auth0 tier.
 
 ### Definition of done for this feature
-- [ ] Rolling refresh tokens enabled in Auth0 dashboard
-- [ ] `offline_access` scope confirmed in login request
-- [ ] SDK configured with `useRefreshTokens: true`
-- [ ] Fixed-expiry client secret logic removed
-- [ ] Active session renews without logout; expired inactive session redirects to login cleanly
+- [ ] Rolling refresh tokens (with rotation) enabled in Auth0 dashboard — **blocked, requires a paid Auth0 tier**; see Known blocker above
+- [x] `offline_access` scope confirmed in login request — not explicit in `authorizationParams` in `main.tsx`, but `auth0-react`'s underlying SDK (`auth0-spa-js`) automatically appends `offline_access` to the requested scope whenever `useRefreshTokens` is `true`. Worth a runtime spot-check (decode the token / check the network tab) to confirm rather than take this as certain.
+- [x] SDK configured with `useRefreshTokens: true` — confirmed in `Switchyard.UI/src/main.tsx`
+- [x] Fixed-expiry client secret logic removed — confirmed, no leftover logic in `main.tsx`
+- [ ] Active session renews without logout; expired inactive session redirects to login cleanly — not independently verified this session; standard refresh tokens should still satisfy this without Rotation, but wants a real click-through test
 
 ---
 
