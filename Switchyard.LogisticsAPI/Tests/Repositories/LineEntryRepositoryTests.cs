@@ -120,5 +120,34 @@ namespace Switchyard.LogisticsAPI.Tests.Repositories
 
             Assert.False(result);
         }
+
+        [Fact]
+        public async Task DeleteByLocationAsync_ReturnsTrue_AndRemovesOnlyMatchingLocation_WhenFound()
+        {
+            _context.LineEntries.AddRange(
+                MakeEntry("txn001", "WH001"),
+                MakeEntry("txn001", "WH001"),
+                MakeEntry("txn001", "WH002"),
+                MakeEntry("txn002", "WH001")
+            );
+            await _context.SaveChangesAsync();
+
+            var result = await _repository.DeleteByLocationAsync("txn001", "WH001");
+            await _context.SaveChangesAsync();
+
+            Assert.True(result);
+            var remaining = await _context.LineEntries.ToListAsync();
+            Assert.Equal(2, remaining.Count);
+            Assert.Contains(remaining, e => e.TransactionId == "txn001" && e.LocationId == "WH002");
+            Assert.Contains(remaining, e => e.TransactionId == "txn002" && e.LocationId == "WH001");
+        }
+
+        [Fact]
+        public async Task DeleteByLocationAsync_ReturnsFalse_WhenNotFound()
+        {
+            var result = await _repository.DeleteByLocationAsync("txn999", "WH999");
+
+            Assert.False(result);
+        }
     }
 }
