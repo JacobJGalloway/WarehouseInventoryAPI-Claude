@@ -32,16 +32,16 @@ v1.4 is a **hardening sprint** with two categories of work: dispatch board funct
 
 A v1.4 release to `main` is considered **complete** when:
 
-- [ ] Empty Return sub-section is present on the board; drivers on empty return appear with ETA visible
-- [ ] Delivered column operates as a dispatch review/close-out state; driver and equipment decouple from BOL at last stop confirmation
-- [ ] Deadhead pairing enforces `DEADHEAD_CUTOFF_MINUTES` window; missed window routes driver to Empty Return
-- [ ] Auth0 sessions use rolling refresh tokens; fixed-expiry client secrets removed — code-side done (`useRefreshTokens: true`, no fixed-expiry logic remaining); dashboard-side *rotation* specifically is blocked by Auth0's free tier — see §6 Known blocker for the fallback rationale
-- [ ] WCAG AA color contrast passes in both light and dark themes
-- [ ] ARIA audit complete — board columns, cards, icon-only buttons, skip-nav
-- [ ] Card border semantic language documented in the Claude Design System
-- [ ] CQRS read replica restored — separate read database in place, sync services running, dev/prod configs updated
-- [ ] No regressions introduced to v1.3 functionality
-- [ ] README startup sequence updated — Docker containers must start before the APIs; correct order documented in main README
+- [x] Empty Return sub-section is present on the board; drivers on empty return appear with ETA visible
+- [x] Delivered column operates as a dispatch review/close-out state; driver and equipment decouple from BOL at last stop confirmation
+- [x] Deadhead pairing enforces `DEADHEAD_CUTOFF_MINUTES` window; missed window routes driver to Empty Return
+- [ ] Auth0 sessions use rolling refresh tokens; fixed-expiry client secrets removed — code-side done (`useRefreshTokens: true`, no fixed-expiry logic remaining); dashboard-side *rotation* specifically is blocked by Auth0's free tier. **Deliberately left unchecked** per Jacob (2026-07-10) — revisit when the tier situation changes rather than mark this done by fallback. Tracked permanently in README Backlog since this file won't survive the merge. **Jacob: does this block the merge, or ship with it flagged as a known limitation?**
+- [x] WCAG AA color contrast passes in both light and dark themes
+- [x] ARIA audit complete — board columns, cards, icon-only buttons, skip-nav (verified with a live Narrator session, not just static review)
+- [x] Card border semantic language documented in the Claude Design System
+- [x] CQRS read replica restored — separate read database in place, sync services running, dev/prod configs updated
+- [x] No regressions introduced to v1.3 functionality — `dotnet test` 211/211 passing, `go test ./...` all packages passing; confirmed zero diff between `main` and `dev_1_4` for `Switchyard.UI/` (the one pre-existing build issue there, `SKUMovementChart.tsx`, predates v1.4 and is already broken on `main`)
+- [x] README startup sequence updated — Docker containers must start before the APIs; correct order documented in main README
 
 ---
 
