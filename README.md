@@ -153,6 +153,14 @@ npm run dev
 dotnet test
 go test ./...
 
+# Coverage (.NET) — coverlet.runsettings is required: Controllers/Repositories and
+# their tests share one assembly per API project rather than a separate *.Tests
+# project, so coverlet's default test-assembly exclusion would zero out everything
+dotnet test --collect:"XPlat Code Coverage" --settings coverlet.runsettings
+
+# Coverage (Go)
+go test -cover ./...
+
 # API docs (Scalar UI — while API is running)
 # Inventory: https://localhost:7000/scalar/v1
 # Logistics: https://localhost:7001/scalar/v1

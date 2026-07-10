@@ -15,6 +15,9 @@ appsettings.Local.json
 # .NET user secrets
 secrets.json
 
+# .NET test coverage output (dotnet test --collect:"XPlat Code Coverage")
+TestResults/
+
 # Node / Vite
 node_modules/
 dist/
