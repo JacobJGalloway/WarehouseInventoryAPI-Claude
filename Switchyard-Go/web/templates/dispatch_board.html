@@ -207,6 +207,11 @@
       overflow-x: auto;
       align-items: start;
     }
+    /* Board is its own horizontal scrollport — give it an explicit focus stop
+       so AT (Narrator et al. treat unlabeled overflow:auto regions as opaque
+       and won't traverse past what's on-screen) and sighted keyboard users
+       can both reach columns beyond the fold via arrow-key scroll. */
+    .board:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
     /* ── Columns ── */
     .col      { background: var(--col-bg); border-radius: 6px; overflow: hidden; }
@@ -401,39 +406,43 @@
 <main id="main-board" class="board">
 
   {{/* ── DRAFT ── */}}
-  <div class="col" role="region" aria-labelledby="col-draft-hd">
+  <div class="col" role="group" aria-labelledby="col-draft-hd">
     <h2 id="col-draft-hd" class="col-hd">Draft <span class="badge">{{len .Draft}}</span></h2>
     <div class="col-body">
       {{range .Draft}}
       <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, originating {{.PlanBOL.OriginatingWhID}}, created {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
         <div class="cs">{{.PlanBOL.OriginatingWhID}} &bull; Created {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}</div>
+        </div>
       </div>
       {{else}}<div class="empty">No BOLs awaiting planning</div>{{end}}
     </div>
   </div>
 
   {{/* ── PENDING ── */}}
-  <div class="col" role="region" aria-labelledby="col-pending-hd">
+  <div class="col" role="group" aria-labelledby="col-pending-hd">
     <h2 id="col-pending-hd" class="col-hd pending-col">Pending <span class="badge">{{len .Pending}}</span></h2>
     <div class="col-body">
       {{range .Pending}}
       <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, originating {{.PlanBOL.OriginatingWhID}}, in planning since {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
         <div class="cs">{{.PlanBOL.OriginatingWhID}} &bull; In planning since {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}</div>
+        </div>
       </div>
       {{else}}<div class="empty">—</div>{{end}}
     </div>
   </div>
 
   {{/* ── LOADING / READY ── */}}
-  <div class="col" role="region" aria-labelledby="col-loadingready-hd">
+  <div class="col" role="group" aria-labelledby="col-loadingready-hd">
     <h2 id="col-loadingready-hd" class="col-hd">Loading / Ready <span class="badge">{{len .LoadingReady}}</span></h2>
     <div class="col-body">
       {{range .LoadingReady}}{{template "card-loadingready" .}}
@@ -442,7 +451,7 @@
   </div>
 
   {{/* ── IN DELIVERY ── */}}
-  <div class="col" role="region" aria-labelledby="col-indelivery-hd">
+  <div class="col" role="group" aria-labelledby="col-indelivery-hd">
     <h2 id="col-indelivery-hd" class="col-hd">
       In Delivery
       <span class="badge">{{len .InDelivery.InTransit}}</span>
@@ -456,7 +465,7 @@
     <div class="in-delivery-body">
 
       {{/* In Transit — always expanded */}}
-      <div class="sub-section" role="region" aria-labelledby="sub-intransit-hd">
+      <div class="sub-section" role="group" aria-labelledby="sub-intransit-hd">
         <h3 id="sub-intransit-hd" class="sub-hd">
           In Transit <span class="badge">{{len .InDelivery.InTransit}}</span>
         </h3>
@@ -494,11 +503,12 @@
   </div>
 
   {{/* ── DELIVERED ── */}}
-  <div class="col" role="region" aria-labelledby="col-delivered-hd">
+  <div class="col" role="group" aria-labelledby="col-delivered-hd">
     <h2 id="col-delivered-hd" class="col-hd">Delivered <span class="badge">{{len .Delivered}}</span></h2>
     <div class="col-body">
       {{range .Delivered}}
       <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, {{.PlanBOL.OriginatingWhID}}, pending close-out, last stop confirmed {{.LastStopConfirmedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
@@ -506,13 +516,14 @@
         <div class="cs">{{.PlanBOL.OriginatingWhID}}</div>
         <span class="pill pill-neutral"><span class="pill-dot"></span>Pending close-out</span>
         <div class="cs" style="margin-top:5px">Last stop confirmed {{.LastStopConfirmedAt.Format "Jan 2 15:04"}}</div>
+        </div>
       </div>
       {{else}}<div class="empty">—</div>{{end}}
     </div>
   </div>
 
   {{/* ── AVAILABLE (driver pool) ── */}}
-  <div class="col pool" role="region" aria-labelledby="col-available-hd">
+  <div class="col pool" role="group" aria-labelledby="col-available-hd">
     <h2 id="col-available-hd" class="col-hd">
       Available
       <span class="badge">{{len .Available.AvailableNow}}</span>
@@ -541,9 +552,10 @@
       {{end}}
     </h2>
     <div class="col-body">
-      <div id="avail-now" role="region" aria-label="Available drivers">
+      <div id="avail-now" role="group" aria-label="Available drivers">
         {{range .Available.AvailableNow}}
         <div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, {{.Driver.LicenseState}}, {{.HOSPillLabel}}">
+          <div aria-hidden="true">
           <div class="chip-row">
             <span class="chip chip-driver">Driver</span>
             <span class="chip-val">{{.Driver.Name}}</span>
@@ -553,10 +565,11 @@
           <div class="cs">{{printf "%.1f" .DailyHoursUsed}}h today &bull; {{printf "%.1f" .WeeklyHoursUsed}}h wk</div>
           {{end}}
           <span class="pill pill-{{.HOSPillTone}}"><span class="pill-dot"></span>{{.HOSPillLabel}}</span>
+          </div>
         </div>
         {{else}}<div class="empty">No available drivers</div>{{end}}
       </div>
-      <div id="avail-resting" style="display:none" role="region" aria-label="Resting drivers">
+      <div id="avail-resting" style="display:none" role="group" aria-label="Resting drivers">
         {{range .Available.Resting}}{{template "card-resting" .}}
         {{else}}<div class="empty">No drivers resting</div>{{end}}
       </div>
@@ -578,7 +591,7 @@
   </div>
 
   {{/* ── MAINTENANCE (resource pool) ── */}}
-  <div class="col pool" role="region" aria-labelledby="col-maintenance-hd">
+  <div class="col pool" role="group" aria-labelledby="col-maintenance-hd">
     <h2 id="col-maintenance-hd" class="col-hd">Maintenance <span class="badge">{{len .Maintenance}}</span></h2>
     <div class="col-body">
       {{range .Maintenance}}{{template "card-maintenance" .}}
@@ -667,6 +680,7 @@ function toggleAvailable() {
 
 {{define "card-loadingready"}}
 <div class="card{{if .IsReady}} is-ready{{end}}{{if .IsLongWait}} long-wait{{end}}" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, {{len .Stops}} stop{{if ne (len .Stops) 1}}s{{end}}, {{if .IsReady}}ready{{else}}loading{{end}}{{if .IsLongWait}}, long wait{{end}}{{with .Driver}}, driver {{.Name}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-bol">BOL</span>
     <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
@@ -684,11 +698,13 @@ function toggleAvailable() {
       <span class="chip-val" style="color:var(--accent)">{{.Name}}</span>
     </div>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-indelivery"}}
 <div class="card{{if .PairingAtRisk}} pairing-at-risk{{end}}" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, BOL {{printf "%.8s" .PlanBOL.ID}}, {{.Equipment.EquipmentType}} {{.Equipment.UnitID}}, {{.HOSPillLabel}}{{with .CurrentStop}}, stop {{.Sequence}} at {{.LocationID}}{{end}}{{if .MandatedStopAt}}, stopped {{.MandatedStopAt.Format "15:04"}}{{end}}{{if .PairingAtRisk}}, no pairing secured{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -716,11 +732,13 @@ function toggleAvailable() {
   {{if .PairingAtRisk}}
     <span class="pill pill-warn" style="margin-left:4px"><span class="pill-dot"></span>No pairing secured</span>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-emptyreturn"}}
 <div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, returning to {{.OriginWarehouseID}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -728,11 +746,13 @@ function toggleAvailable() {
   <div class="cs">Returning to {{.OriginWarehouseID}}</div>
   <div class="cs">ETA:</div>
   <div class="cdown" data-expires="{{.ETA.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</div>
+  </div>
 </div>
 {{end}}
 
 {{define "card-resting"}}
 <div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, {{.Driver.LicenseState}}, {{if eq .RestType "weekly"}}34 hour reset{{else}}10 hour rest{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -749,11 +769,13 @@ function toggleAvailable() {
       10-hr rest &middot; <span class="cdown" data-expires="{{.RestEndsAt.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</span>
     </span>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-breakdown"}}
 <div class="card urgent" role="group" tabindex="0" aria-label="{{.Equipment.EquipmentType}} {{.Equipment.UnitID}}, roadside breakdown{{with .Breakdown}}{{with .LocationDesc}}, {{.}}{{end}}{{if .LoadAttached}}, load attached, rescue required{{end}}{{end}}{{with .Driver}}, driver {{.Name}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
     <span class="chip-val">{{.Equipment.UnitID}}</span>
@@ -774,11 +796,13 @@ function toggleAvailable() {
       <span class="chip-val" style="color:var(--danger)">{{.Name}}</span>
     </div>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-maintenance"}}
 <div class="card" role="group" tabindex="0" aria-label="{{.Equipment.EquipmentType}} {{.Equipment.UnitID}}{{with .Maintenance}}, {{.Description}}, scheduled {{.ScheduledAt.Format "Jan 2 15:04"}}{{end}}{{with .Breakdown}}, {{.BreakdownType}} breakdown{{with .LocationDesc}}, {{.}}{{end}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
     <span class="chip-val">{{.Equipment.UnitID}}</span>
@@ -793,5 +817,6 @@ function toggleAvailable() {
     {{with .LocationDesc}}<div class="cs">{{.}}</div>{{end}}
     <div class="cs">Reported {{.ReportedAt.Format "Jan 2 15:04"}}</div>
   {{end}}
+  </div>
 </div>
 {{end}}
