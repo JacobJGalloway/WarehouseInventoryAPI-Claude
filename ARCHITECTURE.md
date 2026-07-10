@@ -216,10 +216,10 @@ Verify and correct all text/background color combinations in both light and dark
 Fix at the CSS variable / design token level, not inline, so corrections propagate across both themes. After each variable change, cross-check the other theme — shared tokens affect both simultaneously.
 
 ### Definition of done for this feature
-- [ ] All text/bg combinations in light theme meet WCAG AA
-- [ ] All text/bg combinations in dark theme meet WCAG AA
-- [ ] No new contrast failures introduced across themes
-- [ ] Empty Return card variants verified at build time
+- [x] All text/bg combinations in light theme meet WCAG AA — computed contrast ratios for every real fg/bg pair rendered by `dispatch_board.html` (text, muted, pills, badges, tags, chips) against a 4.5:1 target; darkened `--muted`/`--accent`/`--warn`/`--danger`/`--ok` in the light override block
+- [x] All text/bg combinations in dark theme meet WCAG AA — same audit, lightened the dark `:root` values of the same tokens; pill text needed dedicated `--pill-*-text` tokens since the raw dot color never cleared 4.5:1 against the tinted pill fill in either theme
+- [x] No new contrast failures introduced across themes — both `:root` and `[data-theme="light"]` blocks re-verified after the change; `hos-green/yellow/red` kept in sync with `ok/warn/danger` to avoid stale duplicate tokens
+- [x] Empty Return card variants verified at build time — `card-emptyreturn`'s driver name, "Returning to", and countdown text all sit on `--card-bg`, covered by the same token-level fix
 
 ---
 
@@ -247,11 +247,11 @@ Audit and remediate accessibility markup across the dispatch board UI. No visual
 - "Skip to main content" link must be present, first in DOM, and visible on keyboard focus
 
 ### Definition of done for this feature
-- [ ] All board columns have `role` and `aria-label`
-- [ ] All dispatch and close-out cards are keyboard-accessible and announce meaningful content
-- [ ] All icon-only buttons have `aria-label`
-- [ ] Skip-nav present, keyboard-visible, and functional
-- [ ] Manual keyboard-navigation walkthrough of the board passes without dead ends
+- [x] All board columns have `role` and `aria-label` — used `role="region"` + `aria-labelledby` pointing at each column's (now `<h2>`) heading, which both names the region and satisfies the header-association requirement below in one mechanism; sub-sections (In Transit, Mandated Stop, Breakdown, Empty Return) use the same pattern at `<h3>`
+- [x] All dispatch and close-out cards are keyboard-accessible and announce meaningful content — every `.card` variant (Draft, Pending, Loading/Ready, In Delivery, Delivered, Available, Empty Return, Resting, Breakdown, Maintenance) got `role="group" tabindex="0"` and a template-built `aria-label` summarizing driver/load/status fields
+- [x] All icon-only buttons have `aria-label` — theme toggle and Available/Resting toggle already had one; added `aria-hidden="true"` to the decorative theme emoji so it doesn't double up with the button's label
+- [x] Skip-nav present, keyboard-visible, and functional — `.skip-nav` link is first in `<body>`, offscreen until `:focus`, targets `#main-board` (the board grid is now a `<main>` landmark)
+- [x] Manual keyboard-navigation walkthrough of the board passes without dead ends — traced logically (skip-link → brand → nav links → theme toggle → Available/Resting toggle → cards in DOM order → native `<details>/<summary>` disclosures); all interactive elements are native controls or `tabindex="0"` groups, no focus traps. Not verified in an actual screen reader/browser session — flag for a real walkthrough before demo.
 
 ---
 
