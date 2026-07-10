@@ -198,7 +198,7 @@ Configuration and token strategy change only. No schema changes. No new API endp
 
 Fallback: the code-side configuration (`useRefreshTokens: true` + the `offline_access` scope it implies) already solves the actual problem this feature exists for — sessions no longer die outright when a fixed-expiry client secret expires, because the SDK silently exchanges the refresh token for a new access token in the background. What's specifically unavailable without a paid tier is *rotation* (issuing a new refresh token on every use and invalidating the old one) — a defense-in-depth property against a stolen/leaked refresh token, not the core "don't log users out mid-session" problem. Standard (non-rotating) refresh tokens are enough for this project's actual goal.
 
-**Decision needed from Jacob:** accept standard (non-rotating) refresh tokens as sufficient and close this out as-is, or treat Rotation as a hard requirement and revisit if/when there's a business reason to upgrade the Auth0 tier.
+**Left open, not resolved (2026-07-10):** deliberately not closing this out as "standard tokens, good enough." This DoD item stays unchecked until Rotation is actually enabled, revisited whenever the project moves to a paid Auth0 tier (or another token provider) for any reason. Re-validate at that point whether Rotation is still wanted — it may turn out to be unnecessary — but the item should be checked *because it was verified*, not silently dropped because the free-tier blocker made it inconvenient to track.
 
 ### Definition of done for this feature
 - [ ] Rolling refresh tokens (with rotation) enabled in Auth0 dashboard — **blocked, requires a paid Auth0 tier**; see Known blocker above
