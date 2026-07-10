@@ -42,6 +42,40 @@ Set `DATABASE_URL` in your `.env`:
 DATABASE_URL=postgres://postgres:password@localhost:5433/switchyard?sslmode=disable
 ```
 
+### Read replica (CQRS, disaster recovery)
+
+Read queries (currently `internal/repository/postgres/analytics.go`) hit a separate, read-only Postgres instance kept current via native logical replication — not application code. This is scoped for DR against a *smaller* disaster (a bad write, a botched migration, single-table corruption on the primary), not full instance/region loss, so a logically independent replica is the right tool, not full physical replication.
+
+**Must be a genuinely separate Postgres instance/container** — a publisher and subscriber on the same instance deadlock reliably on `CREATE SUBSCRIPTION` (the subscription's own transaction blocks its own replication-slot worker). `docker-compose.yml` runs it as `switchyard-pg-read`, a distinct container with its own volume, alongside `switchyard-pg`.
+
+Setup, run once against a fresh replica:
+
+```bash
+# 1. Bring up the replica container
+docker compose up -d switchyard-pg-read
+
+# 2. Apply Go's schema migrations to the replica's database
+migrate -path internal/migrations -database "postgres://postgres:password@localhost:5434/switchyard_read?sslmode=disable" up
+
+# 3. If any migrations seed data that also exists on the primary (e.g. seeded
+#    lookup tables), truncate those tables on the replica first — the
+#    subscription's initial sync copies rows from the primary and will
+#    collide on primary keys otherwise.
+docker exec switchyard-pg-read psql -U postgres -d switchyard_read -c "TRUNCATE hos_limit, warehouse CASCADE;"
+
+# 4. Publish on the primary (switchyard-pg)
+docker exec switchyard-pg psql -U postgres -d switchyard -c "CREATE PUBLICATION switchyard_go_pub FOR ALL TABLES;"
+
+# 5. Subscribe from the replica, connecting cross-instance over the docker network
+docker exec switchyard-pg-read psql -U postgres -d switchyard_read -c "CREATE SUBSCRIPTION switchyard_go_sub CONNECTION 'host=switchyard-pg port=5432 dbname=switchyard user=postgres password=password' PUBLICATION switchyard_go_pub;"
+```
+
+Set `READ_DATABASE_URL` in your `.env`:
+
+```
+READ_DATABASE_URL=postgres://postgres:password@localhost:5434/switchyard_read?sslmode=disable
+```
+
 ### Run migrations
 
 Run from the `Switchyard-Go/` directory — the relative path `file://internal/migrations` resolves from there.
@@ -58,7 +92,7 @@ migrate -path internal/migrations -database $env:DATABASE_URL up
 
 ### Seed dev data (optional)
 
-Loads a Monday-morning demo board state: 10 drivers, 6 trucks, 7 trailers across WH001–WH005. No BOLs. All HOS windows are fresh.
+Loads a Monday-morning demo board state: 10 drivers, 6 trucks, 7 trailers across WH001–WH005, plus a handful of BOLs across the pipeline. All HOS windows are fresh. v1.4 additions: one BOL near the dead-head cutoff window (pairing-at-risk warn border) and one completed run with no pairing secured (Empty Return + Delivered close-out demo).
 
 ```bash
 psql "$DATABASE_URL" -f internal/migrations/seed_dev_data.sql
@@ -94,6 +128,7 @@ Copy `.env.example` to `.env` and fill in values before running locally.
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | — | PostgreSQL connection string (required) |
+| `READ_DATABASE_URL` | — | Read-replica connection string, kept current via native logical replication (required, see [Read replica](#read-replica-cqrs-disaster-recovery)) |
 | `LOGISTICS_BASE_URL` | — | Switchyard .NET Logistics API base URL |
 | `INVENTORY_BASE_URL` | — | Switchyard .NET Inventory API base URL |
 | `AUTH0_DOMAIN` | — | Auth0 tenant domain |
@@ -107,9 +142,11 @@ Copy `.env.example` to `.env` and fill in values before running locally.
 | `DISPATCH_EMAIL` | — | Recipient address for dispatch alerts |
 | `HOS_WARNING_THRESHOLD_HOURS` | `2.0` | Hours remaining before HOS warning fires |
 | `DEADHEAD_WINDOW_HOURS` | `4.0` | Minimum hours between run fulfillment and dead-head pairing |
-| `DEADHEAD_SEARCH_WINDOW_HOURS` | `2.0` | Look-ahead window when finding eligible dead-head pairings |
+| `DEADHEAD_CUTOFF_MINUTES` | `30` | Hard pre-arrival deadline — a pairing must be secured this many minutes before the driver's estimated fulfillment, checked both at pairing creation and on the board (pairing-at-risk warn border) |
+| `DEADHEAD_SEARCH_WINDOW_HOURS` | `2.0` | Look-ahead window when finding eligible dead-head pairings; also how long an Empty Return driver's pairing window stays open before it's flagged as expiring |
 | `LOADING_AGE_THRESHOLD_HOURS` | `4.0` | Hours before a BOL stuck in `loading` triggers a dispatch alert |
 | `DEFAULT_CYCLE_LABEL` | `60h/7d` | HOS cycle used when none is specified on a plan |
+| `EMPTY_RETURN_TRANSIT_HOURS` | `2.0` | Fixed transit-time estimate for a driver/equipment on empty return with no dead-head pairing secured (v1.4 — see `WhiteboardService.emptyReturnETA` for the future distance-based upgrade path) |
 | `WAREHOUSE_IDS` | `WH001,...,WH009` | Comma-separated list of warehouse IDs the regional inventory endpoint fans out to. Add a new warehouse here whenever a warehouse is added to the network. *(v1.2: this flat list will be replaced by a `WAREHOUSE_REGIONS` param once the `region` field is added to the Warehouse model — new warehouses will be picked up automatically via the DB rather than requiring a config change.)* |
 | `PORT` | `8080` | HTTP listen port |
 | `LOG_LEVEL` | `info` | Log verbosity |

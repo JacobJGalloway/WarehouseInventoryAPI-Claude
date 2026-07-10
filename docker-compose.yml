@@ -8,11 +8,32 @@ services:
       POSTGRES_USER:     postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB:       postgres
+    command: ["postgres", "-c", "wal_level=logical"]
     ports:
       - "5433:5432"
     volumes:
       - switchyard-pg-data:/var/lib/postgresql/data
       - ./docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  switchyard-pg-read:
+    image: postgres:16-alpine
+    container_name: switchyard-pg-read
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB:       postgres
+    command: ["postgres", "-c", "wal_level=logical"]
+    ports:
+      - "5434:5432"
+    volumes:
+      - switchyard-pg-read-data:/var/lib/postgresql/data
+      - ./docker/init-databases-read.sh:/docker-entrypoint-initdb.d/init-databases-read.sh
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -36,3 +57,4 @@ services:
 
 volumes:
   switchyard-pg-data:
+  switchyard-pg-read-data:

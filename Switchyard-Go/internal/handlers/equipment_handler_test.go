@@ -63,6 +63,9 @@ func (r *stubEquipRepo) ResolveBreakdownRecord(_ context.Context, _ uuid.UUID, _
 func (r *stubEquipRepo) GetActiveBreakdownByEquipment(_ context.Context, _ uuid.UUID) (*models.BreakdownRecord, error) {
 	return r.breakdown, nil
 }
+func (r *stubEquipRepo) SetEmptyReturnUntil(_ context.Context, _ uuid.UUID, _ time.Time) error {
+	return nil
+}
 
 type stubEquipNotifier struct{ called bool }
 

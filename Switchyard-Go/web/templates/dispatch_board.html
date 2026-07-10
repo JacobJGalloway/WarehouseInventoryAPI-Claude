@@ -16,22 +16,24 @@
       --card-bg:    #484A4C;
       --border:     #505254;
       --text:       #EEEEEE;
-      --muted:      #9CA3AF;
-      --accent:     #3A73C1;
-      --warn:       #D97706;
-      --danger:     #C23B3B;
+      /* WCAG AA (v1.4): --muted/--accent/--warn/--danger/--ok lightened to hold 4.5:1
+         against col-bg/card-bg/danger-bg/nav-bg — same hues, adjusted lightness only. */
+      --muted:      #c1c6cd;
+      --accent:     #9fbce2;
+      --warn:       #faa849;
+      --danger:     #e6acac;
       --danger-bg:  #2d1c1c;
-      --ok:         #1F9D55;
+      --ok:         #2ad573;
       --ok-dim:     #1a2b22;
-      --hos-green:  #1F9D55;
-      --hos-yellow: #D97706;
-      --hos-red:    #C23B3B;
+      --hos-green:  #2ad573;
+      --hos-yellow: #faa849;
+      --hos-red:    #e6acac;
 
       /* Nav / header surface — slightly darker than board bg for elevation */
       --nav-bg: #2a2c2e;
       /* Nav text stays light in dark mode — nav-bg is dark */
       --nav-text:   #EEEEEE;
-      --nav-muted:  #9CA3AF;
+      --nav-muted:  #c1c6cd;
       --nav-divider: #505254;
 
       /* Badge / tag tinted backgrounds */
@@ -54,21 +56,29 @@
       --chip-trailer-bg:  #162318;
       --chip-trailer-fg:  #5a9e6e;
 
-      /* Status pill — brand-accurate tones (design system §status-pill) */
+      /* Status pill — brand-accurate tones (design system §status-pill).
+         -dot stays full-saturation (marker only, paired with a text label so
+         color is never the sole indicator). -text is a separate WCAG-solved
+         shade — the raw dot color fails 4.5:1 against the tinted -bg fill. */
       --pill-info-dot:       #3A73C1;
-      --pill-info-bg:        rgba(58,115,193,.12);
+      --pill-info-text:      #adc6e7;
+      --pill-info-bg:        rgba(58,115,193,.16);
       --pill-info-border:    rgba(58,115,193,.45);
       --pill-ok-dot:         #1F9D55;
-      --pill-ok-bg:          rgba(31,157,85,.12);
+      --pill-ok-text:        #58de92;
+      --pill-ok-bg:          rgba(31,157,85,.16);
       --pill-ok-border:      rgba(31,157,85,.45);
       --pill-warn-dot:       #D97706;
-      --pill-warn-bg:        rgba(217,119,6,.12);
+      --pill-warn-text:      #fbbc73;
+      --pill-warn-bg:        rgba(217,119,6,.16);
       --pill-warn-border:    rgba(217,119,6,.45);
       --pill-danger-dot:     #C23B3B;
-      --pill-danger-bg:      rgba(194,59,59,.12);
+      --pill-danger-text:    #e7b1b1;
+      --pill-danger-bg:      rgba(194,59,59,.16);
       --pill-danger-border:  rgba(194,59,59,.45);
       --pill-neutral-dot:    #6B6375;
-      --pill-neutral-bg:     rgba(107,99,117,.12);
+      --pill-neutral-text:   #c3bfc9;
+      --pill-neutral-bg:     rgba(107,99,117,.16);
       --pill-neutral-border: rgba(107,99,117,.45);
     }
 
@@ -82,12 +92,21 @@
       --card-bg:    #F7F7F8;
       --border:     #D2D1D5;
       --text:       #3B3A3C;
-      --muted:      #6B6375;
+      /* WCAG AA (v1.4): darkened relative to the dark-theme values above —
+         same hues, re-lit for a light background instead of a dark one. */
+      --muted:      #5e5767;
+      --accent:     #3263a6;
+      --warn:       #965204;
+      --danger:     #b23636;
       --danger-bg:  #fee2e2;
+      --ok:         #16713d;
       --ok-dim:     #dcfce7;
+      --hos-green:  #16713d;
+      --hos-yellow: #965204;
+      --hos-red:    #b23636;
       /* Nav is light in light mode — flip text tokens dark */
       --nav-text:   #3B3A3C;
-      --nav-muted:  #6B6375;
+      --nav-muted:  #5e5767;
 
       --badge-warn-bg:       #fef3c7;
       --badge-danger-bg:     #fee2e2;
@@ -95,6 +114,14 @@
       --tag-ready-bg:        #dcfce7;
       --tag-age-warn-bg:     #fee2e2;
       --tag-weekly-reset-bg: #fee2e2;
+
+      /* Status pill text — solved against the light-mode pill fill (see dark
+         block comment); dot/bg/border keep the same alpha-blend approach. */
+      --pill-info-text:      #3264a8;
+      --pill-ok-text:        #17743f;
+      --pill-warn-text:      #995404;
+      --pill-danger-text:    #af3535;
+      --pill-neutral-text:   #675f71;
 
       --chip-bol-bg:      #dbeafe;
       --chip-bol-fg:      #1e40af;
@@ -180,7 +207,6 @@
       overflow-x: auto;
       align-items: start;
     }
-
     /* ── Columns ── */
     .col      { background: var(--col-bg); border-radius: 6px; overflow: hidden; }
     .col.pool { background: var(--pool-bg); }
@@ -205,8 +231,9 @@
       padding: 8px 10px;
     }
     .card.urgent    { border-color: var(--danger); background: var(--danger-bg); }
-    .card.long-wait { border-color: var(--warn); }
+    .card.long-wait, .card.pairing-at-risk { border-color: var(--warn); }
     .card.is-ready  { border-left: 3px solid var(--ok); }
+    .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
     .ct { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
     .cs { font-size: 11px; color: var(--muted); line-height: 1.55; }
@@ -263,15 +290,15 @@
     }
     .pill-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
-    .pill-info    { background: var(--pill-info-bg);    border-color: var(--pill-info-border);    color: var(--pill-info-dot); }
+    .pill-info    { background: var(--pill-info-bg);    border-color: var(--pill-info-border);    color: var(--pill-info-text); }
     .pill-info    .pill-dot { background: var(--pill-info-dot); }
-    .pill-ok      { background: var(--pill-ok-bg);      border-color: var(--pill-ok-border);      color: var(--pill-ok-dot); }
+    .pill-ok      { background: var(--pill-ok-bg);      border-color: var(--pill-ok-border);      color: var(--pill-ok-text); }
     .pill-ok      .pill-dot { background: var(--pill-ok-dot); }
-    .pill-warn    { background: var(--pill-warn-bg);    border-color: var(--pill-warn-border);    color: var(--pill-warn-dot); }
+    .pill-warn    { background: var(--pill-warn-bg);    border-color: var(--pill-warn-border);    color: var(--pill-warn-text); }
     .pill-warn    .pill-dot { background: var(--pill-warn-dot); }
-    .pill-danger  { background: var(--pill-danger-bg);  border-color: var(--pill-danger-border);  color: var(--pill-danger-dot); }
+    .pill-danger  { background: var(--pill-danger-bg);  border-color: var(--pill-danger-border);  color: var(--pill-danger-text); }
     .pill-danger  .pill-dot { background: var(--pill-danger-dot); }
-    .pill-neutral { background: var(--pill-neutral-bg); border-color: var(--pill-neutral-border); color: var(--pill-neutral-dot); }
+    .pill-neutral { background: var(--pill-neutral-bg); border-color: var(--pill-neutral-border); color: var(--pill-neutral-text); }
     .pill-neutral .pill-dot { background: var(--pill-neutral-dot); }
 
     /* countdown inside a pill inherits pill color — JS tick still updates text */
@@ -323,12 +350,30 @@
     .icon-btn:hover        { color: var(--text); }
     .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+    /* ── Skip nav — offscreen until keyboard focus ── */
+    .skip-nav {
+      position: absolute;
+      left: -9999px; top: 0;
+      background: var(--accent); color: var(--bg);
+      padding: 8px 14px;
+      font-size: 13px; font-weight: 600;
+      border-radius: 0 0 4px 0;
+      z-index: 100;
+      text-decoration: none;
+    }
+    .skip-nav:focus {
+      left: 0;
+      outline: 2px solid var(--text); outline-offset: 2px;
+    }
+
     @media (max-width: 1100px) {
       .board { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
     }
   </style>
 </head>
 <body>
+
+<a href="#main-board" class="skip-nav">Skip to main content</a>
 
 <header>
   <a href="{{.ReactBaseURL}}/" class="brand-lockup">
@@ -348,47 +393,51 @@
 
   <span class="stamp">{{.GeneratedAt.Format "15:04"}} CT &mdash; auto-refreshes every 30 s</span>
   <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">
-    <span id="theme-icon">☀</span><span id="theme-label">Light</span>
+    <span id="theme-icon" aria-hidden="true">☀</span><span id="theme-label">Light</span>
   </button>
 </header>
 
-<div class="board">
+<main id="main-board" class="board">
 
   {{/* ── DRAFT ── */}}
-  <div class="col">
-    <div class="col-hd">Draft <span class="badge">{{len .Draft}}</span></div>
+  <div class="col" role="group" aria-labelledby="col-draft-hd">
+    <h2 id="col-draft-hd" class="col-hd">Draft <span class="badge">{{len .Draft}}</span></h2>
     <div class="col-body">
       {{range .Draft}}
-      <div class="card">
+      <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, originating {{.PlanBOL.OriginatingWhID}}, created {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
         <div class="cs">{{.PlanBOL.OriginatingWhID}} &bull; Created {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}</div>
+        </div>
       </div>
       {{else}}<div class="empty">No BOLs awaiting planning</div>{{end}}
     </div>
   </div>
 
   {{/* ── PENDING ── */}}
-  <div class="col">
-    <div class="col-hd pending-col">Pending <span class="badge">{{len .Pending}}</span></div>
+  <div class="col" role="group" aria-labelledby="col-pending-hd">
+    <h2 id="col-pending-hd" class="col-hd pending-col">Pending <span class="badge">{{len .Pending}}</span></h2>
     <div class="col-body">
       {{range .Pending}}
-      <div class="card">
+      <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, originating {{.PlanBOL.OriginatingWhID}}, in planning since {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
         <div class="cs">{{.PlanBOL.OriginatingWhID}} &bull; In planning since {{.PlanBOL.CreatedAt.Format "Jan 2 15:04"}}</div>
+        </div>
       </div>
       {{else}}<div class="empty">—</div>{{end}}
     </div>
   </div>
 
   {{/* ── LOADING / READY ── */}}
-  <div class="col">
-    <div class="col-hd">Loading / Ready <span class="badge">{{len .LoadingReady}}</span></div>
+  <div class="col" role="group" aria-labelledby="col-loadingready-hd">
+    <h2 id="col-loadingready-hd" class="col-hd">Loading / Ready <span class="badge">{{len .LoadingReady}}</span></h2>
     <div class="col-body">
       {{range .LoadingReady}}{{template "card-loadingready" .}}
       {{else}}<div class="empty">No BOLs at dock</div>{{end}}
@@ -396,8 +445,8 @@
   </div>
 
   {{/* ── IN DELIVERY ── */}}
-  <div class="col">
-    <div class="col-hd">
+  <div class="col" role="group" aria-labelledby="col-indelivery-hd">
+    <h2 id="col-indelivery-hd" class="col-hd">
       In Delivery
       <span class="badge">{{len .InDelivery.InTransit}}</span>
       {{if .InDelivery.MandatedStop}}
@@ -406,14 +455,14 @@
       {{if .InDelivery.Breakdown}}
         <span class="badge bd-danger">{{len .InDelivery.Breakdown}} breakdown</span>
       {{end}}
-    </div>
+    </h2>
     <div class="in-delivery-body">
 
       {{/* In Transit — always expanded */}}
-      <div class="sub-section">
-        <div class="sub-hd">
+      <div class="sub-section" role="group" aria-labelledby="sub-intransit-hd">
+        <h3 id="sub-intransit-hd" class="sub-hd">
           In Transit <span class="badge">{{len .InDelivery.InTransit}}</span>
-        </div>
+        </h3>
         {{range .InDelivery.InTransit}}{{template "card-indelivery" .}}
         {{else}}<div class="empty">—</div>{{end}}
       </div>
@@ -421,9 +470,9 @@
       {{/* Mandated Stop — collapsed by default */}}
       <details class="sub-details">
         <summary>
-          <div class="sub-hd mandated">
+          <h3 class="sub-hd mandated">
             Mandated Stop <span class="badge">{{len .InDelivery.MandatedStop}}</span>
-          </div>
+          </h3>
         </summary>
         <div class="sub-details-body">
           {{range .InDelivery.MandatedStop}}{{template "card-indelivery" .}}
@@ -434,9 +483,9 @@
       {{/* Breakdown — collapsed by default */}}
       <details class="sub-details">
         <summary>
-          <div class="sub-hd breakdown">
+          <h3 class="sub-hd breakdown">
             Breakdown <span class="badge">{{len .InDelivery.Breakdown}}</span>
-          </div>
+          </h3>
         </summary>
         <div class="sub-details-body">
           {{range .InDelivery.Breakdown}}{{template "card-breakdown" .}}
@@ -448,33 +497,28 @@
   </div>
 
   {{/* ── DELIVERED ── */}}
-  <div class="col">
-    <div class="col-hd">Delivered <span class="badge">{{len .Delivered}}</span></div>
+  <div class="col" role="group" aria-labelledby="col-delivered-hd">
+    <h2 id="col-delivered-hd" class="col-hd">Delivered <span class="badge">{{len .Delivered}}</span></h2>
     <div class="col-body">
       {{range .Delivered}}
-      <div class="card">
-        <div class="chip-row">
-          <span class="chip chip-driver">Driver</span>
-          <span class="chip-val">{{.Driver.Name}}</span>
-        </div>
+      <div class="card" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, {{.PlanBOL.OriginatingWhID}}, pending close-out, last stop confirmed {{.LastStopConfirmedAt.Format "Jan 2 15:04"}}">
+        <div aria-hidden="true">
         <div class="chip-row">
           <span class="chip chip-bol">BOL</span>
           <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
         </div>
-        <div class="chip-row">
-          <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
-          <span class="chip-val">{{.Equipment.UnitID}}</span>
+        <div class="cs">{{.PlanBOL.OriginatingWhID}}</div>
+        <span class="pill pill-neutral"><span class="pill-dot"></span>Pending close-out</span>
+        <div class="cs" style="margin-top:5px">Last stop confirmed {{.LastStopConfirmedAt.Format "Jan 2 15:04"}}</div>
         </div>
-        <div class="cs">Dead-head window:</div>
-        <div class="cdown" data-expires="{{.DeadheadWindowExpiresAt.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</div>
       </div>
       {{else}}<div class="empty">—</div>{{end}}
     </div>
   </div>
 
   {{/* ── AVAILABLE (driver pool) ── */}}
-  <div class="col pool">
-    <div class="col-hd">
+  <div class="col pool" role="group" aria-labelledby="col-available-hd">
+    <h2 id="col-available-hd" class="col-hd">
       Available
       <span class="badge">{{len .Available.AvailableNow}}</span>
       <button class="icon-btn"
@@ -500,11 +544,12 @@
       {{if .Available.Resting}}
         <span class="badge bd-warn">{{len .Available.Resting}} resting</span>
       {{end}}
-    </div>
+    </h2>
     <div class="col-body">
-      <div id="avail-now">
+      <div id="avail-now" role="group" aria-label="Available drivers">
         {{range .Available.AvailableNow}}
-        <div class="card">
+        <div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, {{.Driver.LicenseState}}, {{.HOSPillLabel}}">
+          <div aria-hidden="true">
           <div class="chip-row">
             <span class="chip chip-driver">Driver</span>
             <span class="chip-val">{{.Driver.Name}}</span>
@@ -514,26 +559,41 @@
           <div class="cs">{{printf "%.1f" .DailyHoursUsed}}h today &bull; {{printf "%.1f" .WeeklyHoursUsed}}h wk</div>
           {{end}}
           <span class="pill pill-{{.HOSPillTone}}"><span class="pill-dot"></span>{{.HOSPillLabel}}</span>
+          </div>
         </div>
         {{else}}<div class="empty">No available drivers</div>{{end}}
       </div>
-      <div id="avail-resting" style="display:none">
+      <div id="avail-resting" style="display:none" role="group" aria-label="Resting drivers">
         {{range .Available.Resting}}{{template "card-resting" .}}
         {{else}}<div class="empty">No drivers resting</div>{{end}}
       </div>
+
+      {{/* Empty Return — driver has no current assignment and no dead-head pairing
+           secured; physically returning to their BOL's originating warehouse. */}}
+      <details class="sub-details" {{if .Available.EmptyReturn}}open{{end}}>
+        <summary>
+          <h3 class="sub-hd">
+            Empty Return <span class="badge">{{len .Available.EmptyReturn}}</span>
+          </h3>
+        </summary>
+        <div class="sub-details-body">
+          {{range .Available.EmptyReturn}}{{template "card-emptyreturn" .}}
+          {{else}}<div class="empty">No drivers on empty return</div>{{end}}
+        </div>
+      </details>
     </div>
   </div>
 
   {{/* ── MAINTENANCE (resource pool) ── */}}
-  <div class="col pool">
-    <div class="col-hd">Maintenance <span class="badge">{{len .Maintenance}}</span></div>
+  <div class="col pool" role="group" aria-labelledby="col-maintenance-hd">
+    <h2 id="col-maintenance-hd" class="col-hd">Maintenance <span class="badge">{{len .Maintenance}}</span></h2>
     <div class="col-body">
       {{range .Maintenance}}{{template "card-maintenance" .}}
       {{else}}<div class="empty">All equipment operational</div>{{end}}
     </div>
   </div>
 
-</div>
+</main>
 
 <script>
 (function () {
@@ -613,7 +673,8 @@ function toggleAvailable() {
 {{end}}
 
 {{define "card-loadingready"}}
-<div class="card{{if .IsReady}} is-ready{{end}}{{if .IsLongWait}} long-wait{{end}}">
+<div class="card{{if .IsReady}} is-ready{{end}}{{if .IsLongWait}} long-wait{{end}}" role="group" tabindex="0" aria-label="BOL {{printf "%.8s" .PlanBOL.ID}}, {{len .Stops}} stop{{if ne (len .Stops) 1}}s{{end}}, {{if .IsReady}}ready{{else}}loading{{end}}{{if .IsLongWait}}, long wait{{end}}{{with .Driver}}, driver {{.Name}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-bol">BOL</span>
     <span class="chip-val">{{printf "%.8s" .PlanBOL.ID}}&hellip;</span>
@@ -631,11 +692,13 @@ function toggleAvailable() {
       <span class="chip-val" style="color:var(--accent)">{{.Name}}</span>
     </div>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-indelivery"}}
-<div class="card">
+<div class="card{{if .PairingAtRisk}} pairing-at-risk{{end}}" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, BOL {{printf "%.8s" .PlanBOL.ID}}, {{.Equipment.EquipmentType}} {{.Equipment.UnitID}}, {{.HOSPillLabel}}{{with .CurrentStop}}, stop {{.Sequence}} at {{.LocationID}}{{end}}{{if .MandatedStopAt}}, stopped {{.MandatedStopAt.Format "15:04"}}{{end}}{{if .PairingAtRisk}}, no pairing secured{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -660,11 +723,30 @@ function toggleAvailable() {
       Stopped {{.MandatedStopAt.Format "15:04"}}{{with .ELDStopRef}} &bull; ELD: {{.}}{{end}}
     </div>
   {{end}}
+  {{if .PairingAtRisk}}
+    <span class="pill pill-warn" style="margin-left:4px"><span class="pill-dot"></span>No pairing secured</span>
+  {{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "card-emptyreturn"}}
+<div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, returning to {{.OriginWarehouseID}}">
+  <div aria-hidden="true">
+  <div class="chip-row">
+    <span class="chip chip-driver">Driver</span>
+    <span class="chip-val">{{.Driver.Name}}</span>
+  </div>
+  <div class="cs">Returning to {{.OriginWarehouseID}}</div>
+  <div class="cs">ETA:</div>
+  <div class="cdown" data-expires="{{.ETA.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</div>
+  </div>
 </div>
 {{end}}
 
 {{define "card-resting"}}
-<div class="card">
+<div class="card" role="group" tabindex="0" aria-label="Driver {{.Driver.Name}}, {{.Driver.LicenseState}}, {{if eq .RestType "weekly"}}34 hour reset{{else}}10 hour rest{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-driver">Driver</span>
     <span class="chip-val">{{.Driver.Name}}</span>
@@ -681,11 +763,13 @@ function toggleAvailable() {
       10-hr rest &middot; <span class="cdown" data-expires="{{.RestEndsAt.UTC.Format "2006-01-02T15:04:05Z"}}">&hellip;</span>
     </span>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-breakdown"}}
-<div class="card urgent">
+<div class="card urgent" role="group" tabindex="0" aria-label="{{.Equipment.EquipmentType}} {{.Equipment.UnitID}}, roadside breakdown{{with .Breakdown}}{{with .LocationDesc}}, {{.}}{{end}}{{if .LoadAttached}}, load attached, rescue required{{end}}{{end}}{{with .Driver}}, driver {{.Name}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
     <span class="chip-val">{{.Equipment.UnitID}}</span>
@@ -706,11 +790,13 @@ function toggleAvailable() {
       <span class="chip-val" style="color:var(--danger)">{{.Name}}</span>
     </div>
   {{end}}
+  </div>
 </div>
 {{end}}
 
 {{define "card-maintenance"}}
-<div class="card">
+<div class="card" role="group" tabindex="0" aria-label="{{.Equipment.EquipmentType}} {{.Equipment.UnitID}}{{with .Maintenance}}, {{.Description}}, scheduled {{.ScheduledAt.Format "Jan 2 15:04"}}{{end}}{{with .Breakdown}}, {{.BreakdownType}} breakdown{{with .LocationDesc}}, {{.}}{{end}}{{end}}">
+  <div aria-hidden="true">
   <div class="chip-row">
     <span class="chip chip-{{.Equipment.EquipmentType}}">{{.Equipment.EquipmentType}}</span>
     <span class="chip-val">{{.Equipment.UnitID}}</span>
@@ -725,5 +811,6 @@ function toggleAvailable() {
     {{with .LocationDesc}}<div class="cs">{{.}}</div>{{end}}
     <div class="cs">Reported {{.ReportedAt.Format "Jan 2 15:04"}}</div>
   {{end}}
+  </div>
 </div>
 {{end}}

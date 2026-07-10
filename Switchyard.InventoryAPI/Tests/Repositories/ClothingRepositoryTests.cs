@@ -152,5 +152,118 @@ namespace Switchyard.InventoryAPI.Tests.Repositories
             Assert.True(result);
             Assert.Equal(1, await _context.Clothing.CountAsync());
         }
+
+        [Fact]
+        public async Task GetByLocationAsync_ReturnsMatchingItems_WhenFound()
+        {
+            _context.Clothing.AddRange(
+                new Clothing { PartitionKey = "WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", LocationId = "WH001", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow },
+                new Clothing { PartitionKey = "WH002-CLTH001-b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7", LocationId = "WH002", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow }
+            );
+            await _context.SaveChangesAsync();
+
+            var result = await _repository.GetByLocationAsync("WH001");
+
+            var single = Assert.Single(result);
+            Assert.Equal("WH001", single.LocationId);
+        }
+
+        [Fact]
+        public async Task GetByLocationAsync_ReturnsEmptyList_WhenNotFound()
+        {
+            var result = await _repository.GetByLocationAsync("WH999");
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public async Task GetByLocationAndSKUAsync_ReturnsMatchingItems_WhenFound()
+        {
+            _context.Clothing.AddRange(
+                new Clothing { PartitionKey = "WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", LocationId = "WH001", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow },
+                new Clothing { PartitionKey = "WH001-CLTH002-b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7", LocationId = "WH001", SKUMarker = "CLTH002", UnloadedDate = DateTime.UtcNow },
+                new Clothing { PartitionKey = "WH002-CLTH001-c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8", LocationId = "WH002", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow }
+            );
+            await _context.SaveChangesAsync();
+
+            var result = await _repository.GetByLocationAndSKUAsync("WH001", "CLTH001");
+
+            var single = Assert.Single(result);
+            Assert.Equal("WH001", single.LocationId);
+            Assert.Equal("CLTH001", single.SKUMarker);
+        }
+
+        [Fact]
+        public async Task GetByLocationAndSKUAsync_ReturnsEmptyList_WhenNotFound()
+        {
+            var result = await _repository.GetByLocationAndSKUAsync("WH999", "CLTH999");
+
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public async Task PatchAsync_UpdatesProjectedAndUnloadedDate_WhenFound()
+        {
+            var item = new Clothing { PartitionKey = "WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow, Projected = false };
+            _context.Clothing.Add(item);
+            await _context.SaveChangesAsync();
+
+            var newDate = DateTime.UtcNow.AddDays(3);
+            await _repository.PatchAsync("WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", true, newDate);
+            await _context.SaveChangesAsync();
+
+            var result = await _context.Clothing.FindAsync("WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+            Assert.True(result!.Projected);
+            Assert.Equal(newDate, result.UnloadedDate);
+        }
+
+        [Fact]
+        public async Task PatchAsync_DoesNothing_WhenNotFound()
+        {
+            await _repository.PatchAsync("WH999-CLTH999-ffffffffffffffffffffffffffffffff", true, DateTime.UtcNow);
+            await _context.SaveChangesAsync();
+
+            Assert.Equal(0, await _context.Clothing.CountAsync());
+        }
+
+        [Fact]
+        public async Task ReceiveDeliveryAsync_MarksProjectedItemsAsReceived_UpToQuantity()
+        {
+            _context.Clothing.AddRange(
+                new Clothing { PartitionKey = "WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow, Projected = true },
+                new Clothing { PartitionKey = "WH001-CLTH001-b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow, Projected = true },
+                new Clothing { PartitionKey = "WH001-CLTH001-c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow, Projected = true }
+            );
+            await _context.SaveChangesAsync();
+
+            await _repository.ReceiveDeliveryAsync("CLTH001", 2, "WH002");
+            await _context.SaveChangesAsync();
+
+            var items = await _context.Clothing.Where(c => c.SKUMarker == "CLTH001").ToListAsync();
+            Assert.Equal(2, items.Count(c => !c.Projected && c.LocationId == "WH002"));
+            Assert.Equal(1, items.Count(c => c.Projected));
+        }
+
+        [Fact]
+        public async Task DeleteByPartitionKeyAsync_ReturnsFalse_WhenNotFound()
+        {
+            var result = await _repository.DeleteByPartitionKeyAsync("WH999-CLTH999-ffffffffffffffffffffffffffffffff");
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public async Task DeleteByPartitionKeyAsync_ReturnsTrue_AndRemovesItem_WhenFound()
+        {
+            var item = new Clothing { PartitionKey = "WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6", SKUMarker = "CLTH001", UnloadedDate = DateTime.UtcNow };
+            _context.Clothing.Add(item);
+            await _context.SaveChangesAsync();
+
+            var result = await _repository.DeleteByPartitionKeyAsync("WH001-CLTH001-a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+            await _context.SaveChangesAsync();
+
+            Assert.True(result);
+            Assert.Equal(0, await _context.Clothing.CountAsync());
+        }
     }
 }

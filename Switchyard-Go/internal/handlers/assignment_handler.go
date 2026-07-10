@@ -29,13 +29,15 @@ type assignNotificationService interface {
 
 // AssignmentHandler manages driver-BOL-equipment assignment lifecycle.
 type AssignmentHandler struct {
-	assignRepo repository.AssignmentRepository
-	driverRepo repository.DriverRepository
-	bolRepo    repository.PlanBOLRepository
-	equipRepo  repository.EquipmentRepository
-	hosSvc     assignHOSService
-	wbSvc      assignWhiteboardService
-	notifySvc  assignNotificationService
+	assignRepo              repository.AssignmentRepository
+	driverRepo              repository.DriverRepository
+	bolRepo                 repository.PlanBOLRepository
+	equipRepo               repository.EquipmentRepository
+	hosSvc                  assignHOSService
+	wbSvc                   assignWhiteboardService
+	notifySvc               assignNotificationService
+	pairingRepo             repository.PairingRepository
+	emptyReturnTransitHours float64
 }
 
 func NewAssignmentHandler(
@@ -46,16 +48,36 @@ func NewAssignmentHandler(
 	hosSvc assignHOSService,
 	wbSvc assignWhiteboardService,
 	notifySvc assignNotificationService,
+	pairingRepo repository.PairingRepository,
+	emptyReturnTransitHours float64,
 ) *AssignmentHandler {
 	return &AssignmentHandler{
-		assignRepo: assignRepo,
-		driverRepo: driverRepo,
-		bolRepo:    bolRepo,
-		equipRepo:  equipRepo,
-		hosSvc:     hosSvc,
-		wbSvc:      wbSvc,
-		notifySvc:  notifySvc,
+		assignRepo:              assignRepo,
+		driverRepo:              driverRepo,
+		bolRepo:                 bolRepo,
+		equipRepo:               equipRepo,
+		hosSvc:                  hosSvc,
+		wbSvc:                   wbSvc,
+		notifySvc:               notifySvc,
+		pairingRepo:             pairingRepo,
+		emptyReturnTransitHours: emptyReturnTransitHours,
 	}
+}
+
+// reconcileEquipmentAvailability flips equipment still marked Assigned to
+// Available once its empty-return window has elapsed. Equipment carries no
+// live location tracking, so — like a driver's Empty Return card — its
+// availability after a completed run is derived from a fixed transit-time
+// estimate, not a confirmed arrival.
+func (h *AssignmentHandler) reconcileEquipmentAvailability(ctx context.Context, e *models.Equipment) (*models.Equipment, error) {
+	if e.Status == models.EquipmentStatusAssigned && e.EmptyReturnUntil != nil && !time.Now().Before(*e.EmptyReturnUntil) {
+		if err := h.equipRepo.UpdateStatus(ctx, e.ID, models.EquipmentStatusAvailable); err != nil {
+			return nil, err
+		}
+		e.Status = models.EquipmentStatusAvailable
+		e.EmptyReturnUntil = nil
+	}
+	return e, nil
 }
 
 type createAssignmentRequest struct {
@@ -119,6 +141,11 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "equipment not found")
 		return
 	}
+	equip, err = h.reconcileEquipmentAvailability(r.Context(), equip)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reconcile equipment availability")
+		return
+	}
 	if equip.Status != models.EquipmentStatusAvailable {
 		writeError(w, http.StatusConflict, "equipment is not available")
 		return
@@ -135,12 +162,13 @@ func (h *AssignmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		baseRate = *req.BaseRatePerMile
 	}
 	assignment := &models.DriverBOLAssignment{
-		ID:              uuid.New(),
-		DriverID:        driverID,
-		PlanBOLID:       planBOLID,
-		EquipmentID:     equipmentID,
-		BaseRatePerMile: baseRate,
-		AssignedAt:      time.Now().UTC(),
+		ID:                uuid.New(),
+		DriverID:          driverID,
+		PlanBOLID:         planBOLID,
+		EquipmentID:       equipmentID,
+		BaseRatePerMile:   baseRate,
+		AssignedAt:        time.Now().UTC(),
+		EstimatedRunHours: &req.EstimatedRunHours,
 	}
 	if err := h.assignRepo.Create(r.Context(), assignment); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create assignment")
@@ -236,6 +264,25 @@ func (h *AssignmentHandler) Fulfill(w http.ResponseWriter, r *http.Request) {
 	if err := h.bolRepo.UpdateStatus(r.Context(), assignment.PlanBOLID, models.PlanBOLStatusFulfilled); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update BOL status")
 		return
+	}
+	// Equipment decouples from the BOL at last-stop confirmation (ARCHITECTURE.md §4).
+	// If a dead-head pairing is already secured, the same truck/trailer continues
+	// straight to the paired run — release it now. Otherwise it's physically
+	// returning empty with no location tracking to confirm arrival, so it stays
+	// Assigned under a fixed transit-time estimate, mirroring the driver's Empty
+	// Return ETA, until reconcileEquipmentAvailability flips it on next use.
+	pairing, _ := h.pairingRepo.GetByActiveBOL(r.Context(), assignment.PlanBOLID)
+	if pairing != nil && pairing.Status != models.PairingStatusCancelled {
+		if err := h.equipRepo.UpdateStatus(r.Context(), assignment.EquipmentID, models.EquipmentStatusAvailable); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to release equipment")
+			return
+		}
+	} else {
+		emptyReturnUntil := now.Add(time.Duration(h.emptyReturnTransitHours * float64(time.Hour)))
+		if err := h.equipRepo.SetEmptyReturnUntil(r.Context(), assignment.EquipmentID, emptyReturnUntil); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to set equipment empty-return window")
+			return
+		}
 	}
 
 	payload := events.AssignmentPayload{
@@ -382,6 +429,11 @@ func (h *AssignmentHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "incoming equipment not found")
 		return
 	}
+	incomingEquip, err = h.reconcileEquipmentAvailability(r.Context(), incomingEquip)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reconcile equipment availability")
+		return
+	}
 	if incomingEquip.Status != models.EquipmentStatusAvailable {
 		writeError(w, http.StatusConflict, "incoming equipment is not available")
 		return
@@ -433,6 +485,7 @@ func (h *AssignmentHandler) Transfer(w http.ResponseWriter, r *http.Request) {
 		TransferReason:     &reason,
 		Notes:              req.Notes,
 		SegmentStartStopID: &startStopID,
+		EstimatedRunHours:  &req.EstimatedRunHours,
 	}
 	if err := h.assignRepo.Create(r.Context(), incoming); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create incoming assignment")

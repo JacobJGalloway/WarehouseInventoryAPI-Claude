@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <!-- Controllers/Repositories and their tests live in the same project
+               (see CLAUDE.md) rather than a separate *.Tests project, so
+               coverlet's default test-assembly exclusion would zero out the
+               entire assembly. Must include it explicitly. -->
+          <IncludeTestAssembly>true</IncludeTestAssembly>
+          <Format>cobertura</Format>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

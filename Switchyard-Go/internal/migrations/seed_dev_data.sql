@@ -106,10 +106,41 @@ INSERT INTO plan_bol_stop (id, plan_bol_id, sequence, location_id, stop_type, de
 -- ── Assignment — Tom Brierley, BOL 005, TK-104 ────────────────────────────────
 -- departed_at set → board places this card in In Delivery > In Transit.
 -- fulfilled_at null → dead-head timer not running yet.
-INSERT INTO driver_bol_assignment (id, driver_id, plan_bol_id, equipment_id, assigned_at, departed_at) VALUES
+-- estimated_run_hours puts estimated fulfillment ~15 min out — inside
+-- DEADHEAD_CUTOFF_MINUTES (30) with no pairing secured, so this card demos
+-- the pairing-at-risk warn border (ARCHITECTURE.md §5).
+INSERT INTO driver_bol_assignment (id, driver_id, plan_bol_id, equipment_id, assigned_at, departed_at, estimated_run_hours) VALUES
   ('f1000000-0000-0000-0000-000000000001',
    'a1000000-0000-0000-0000-000000000005',
    'd1000000-0000-0000-0000-000000000005',
    'c1000000-0000-0000-0000-000000000004',
    NOW() - INTERVAL '5 hours',
-   NOW() - INTERVAL '4 hours');
+   NOW() - INTERVAL '4 hours',
+   4.25);
+
+-- ── BOL 006 — completed run, no dead-head pairing (Empty Return demo) ────────
+-- Keisha Drummond completed her WH003 run 20 minutes ago with no pairing
+-- secured — demos both the Delivered close-out card and the Empty Return
+-- sub-section (ARCHITECTURE.md §3-4).
+INSERT INTO plan_bol_record (id, driver_id, originating_wh_id, status, created_at, submitted_at, fulfilled_at) VALUES
+  ('d1000000-0000-0000-0000-000000000006',
+   'a1000000-0000-0000-0000-000000000006', 'WH003', 'fulfilled',
+   NOW() - INTERVAL '6 hours', NOW() - INTERVAL '5 hours', NOW() - INTERVAL '20 minutes');
+
+INSERT INTO plan_bol_stop (id, plan_bol_id, sequence, location_id, stop_type, delivery_items, is_processed, processed_at) VALUES
+  ('e1000000-0000-0000-0000-000000000010', 'd1000000-0000-0000-0000-000000000006', 1, 'WH003',     'warehouse', '{"SKU-VEST-M":20}', true, NOW() - INTERVAL '5 hours'),
+  ('e1000000-0000-0000-0000-000000000011', 'd1000000-0000-0000-0000-000000000006', 2, 'STORE-303', 'store',     '{"SKU-VEST-M":20}', true, NOW() - INTERVAL '20 minutes');
+
+INSERT INTO driver_bol_assignment (id, driver_id, plan_bol_id, equipment_id, assigned_at, departed_at, fulfilled_at) VALUES
+  ('f1000000-0000-0000-0000-000000000002',
+   'a1000000-0000-0000-0000-000000000006',
+   'd1000000-0000-0000-0000-000000000006',
+   'c1000000-0000-0000-0000-000000000015',
+   NOW() - INTERVAL '5 hours',
+   NOW() - INTERVAL '4 hours 30 minutes',
+   NOW() - INTERVAL '20 minutes');
+
+-- Equipment mirrors what AssignmentHandler.Fulfill would have done: no pairing
+-- secured, so the trailer stays Assigned under its own empty-return timer.
+UPDATE equipment SET status = 'assigned', empty_return_until = NOW() + INTERVAL '1 hour 40 minutes'
+  WHERE id = 'c1000000-0000-0000-0000-000000000015';

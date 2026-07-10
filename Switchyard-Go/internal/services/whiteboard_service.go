@@ -32,6 +32,7 @@ const (
 	AlertTypeHOSWeeklyLimit    AlertType = "hos_weekly_limit"
 	AlertTypeRoadsideBreakdown AlertType = "roadside_breakdown"
 	AlertTypeExpiringDeadhead  AlertType = "expiring_deadhead"
+	AlertTypePairingAtRisk     AlertType = "pairing_at_risk"
 
 	AlertSeverityWarning  AlertSeverity = "warning"
 	AlertSeverityCritical AlertSeverity = "critical"
@@ -80,6 +81,10 @@ type InDeliveryCard struct {
 	MandatedStopAt    *time.Time
 	ELDStopRef        *string
 	IsCustodyTransfer bool
+	// PairingAtRisk is true when the driver has entered the DEADHEAD_CUTOFF_MINUTES
+	// window before their estimated fulfillment time with no dead-head pairing
+	// secured yet. Drives the warn-tone border (design system Card Border Language).
+	PairingAtRisk bool
 }
 
 // BreakdownCard represents a roadside equipment failure with load still attached.
@@ -98,17 +103,29 @@ type InDeliveryColumn struct {
 	Breakdown    []*BreakdownCard
 }
 
-// DeliveredCard appears after all stops are confirmed or after a custody transfer.
-// IsTransferDeadhead is true when the driver handed off the load mid-route rather
-// than completing delivery — the deadhead window is anchored to TransferredAt in that case.
+// DeliveredCard is the BOL close-out card shown during dispatch review, between
+// last stop confirmation and final archiving. Driver and equipment have already
+// decoupled and routed independently (see EmptyReturnCard and the equipment
+// empty-return timer) — this card carries BOL details only, no driver/equipment
+// reference (ARCHITECTURE.md §4).
 type DeliveredCard struct {
-	Assignment              *models.DriverBOLAssignment
-	Driver                  *models.Driver
-	PlanBOL                 *models.PlanBOLRecord
-	Equipment               *models.Equipment
-	DeadheadWindowExpiresAt time.Time
-	DeadheadWindowRemaining time.Duration
-	IsTransferDeadhead      bool
+	PlanBOL             *models.PlanBOLRecord
+	LastStopConfirmedAt time.Time
+}
+
+// EmptyReturnCard represents a driver with no current assignment, physically
+// returning to their BOL's originating warehouse after a run with no dead-head
+// pairing secured (ARCHITECTURE.md §3). ETA uses a fixed transit-time constant
+// for v1.4 (see emptyReturnETA) — OriginWarehouseID is threaded through so a
+// future distance-based estimate can replace the calculation without changing
+// callers. PairingWindowExpiresAt tracks how much longer dispatch has to still
+// arrange a pairing (DEADHEAD_SEARCH_WINDOW_HOURS) before it's a dead loss.
+type EmptyReturnCard struct {
+	Driver                 *models.Driver
+	OriginWarehouseID      string
+	LastStopConfirmedAt    time.Time
+	ETA                    time.Time
+	PairingWindowExpiresAt time.Time
 }
 
 // --- Resource pool card types (right side of board) ---
@@ -138,6 +155,7 @@ type RestingDriverCard struct {
 type AvailableColumn struct {
 	AvailableNow []*AvailableDriverCard
 	Resting      []*RestingDriverCard
+	EmptyReturn  []*EmptyReturnCard
 }
 
 // MaintenanceCard covers both scheduled maintenance and non-load-attached breakdowns.
@@ -179,15 +197,18 @@ type BoardAlert struct {
 // WhiteboardService assembles the dispatch board and surfaces active alerts.
 // Board state is assembled dynamically from live repo data on every request.
 type WhiteboardService struct {
-	driverRepo            repository.DriverRepository
-	assignRepo            repository.AssignmentRepository
-	bolRepo               repository.PlanBOLRepository
-	equipRepo             repository.EquipmentRepository
-	hosRepo               repository.HOSRepository
-	warningThresholdHours float64
-	deadheadSearchWindow  time.Duration
-	loadingAgeThreshold   time.Duration
-	defaultCycleLabel     string
+	driverRepo              repository.DriverRepository
+	assignRepo              repository.AssignmentRepository
+	bolRepo                 repository.PlanBOLRepository
+	equipRepo               repository.EquipmentRepository
+	hosRepo                 repository.HOSRepository
+	pairingRepo             repository.PairingRepository
+	warningThresholdHours   float64
+	deadheadSearchWindow    time.Duration
+	loadingAgeThreshold     time.Duration
+	defaultCycleLabel       string
+	cutoffWindow            time.Duration // DEADHEAD_CUTOFF_MINUTES
+	emptyReturnTransitHours float64       // EMPTY_RETURN_TRANSIT_HOURS
 }
 
 func NewWhiteboardService(
@@ -200,18 +221,57 @@ func NewWhiteboardService(
 	deadheadSearchWindowHours float64,
 	loadingAgeThresholdHours float64,
 	defaultCycleLabel string,
+	pairingRepo repository.PairingRepository,
+	cutoffMinutes float64,
+	emptyReturnTransitHours float64,
 ) *WhiteboardService {
 	return &WhiteboardService{
-		driverRepo:            driverRepo,
-		assignRepo:            assignRepo,
-		bolRepo:               bolRepo,
-		equipRepo:             equipRepo,
-		hosRepo:               hosRepo,
-		warningThresholdHours: warningThresholdHours,
-		deadheadSearchWindow:  time.Duration(deadheadSearchWindowHours * float64(time.Hour)),
-		loadingAgeThreshold:   time.Duration(loadingAgeThresholdHours * float64(time.Hour)),
-		defaultCycleLabel:     defaultCycleLabel,
+		driverRepo:              driverRepo,
+		assignRepo:              assignRepo,
+		bolRepo:                 bolRepo,
+		equipRepo:               equipRepo,
+		hosRepo:                 hosRepo,
+		warningThresholdHours:   warningThresholdHours,
+		deadheadSearchWindow:    time.Duration(deadheadSearchWindowHours * float64(time.Hour)),
+		loadingAgeThreshold:     time.Duration(loadingAgeThresholdHours * float64(time.Hour)),
+		defaultCycleLabel:       defaultCycleLabel,
+		pairingRepo:             pairingRepo,
+		cutoffWindow:            time.Duration(cutoffMinutes * float64(time.Minute)),
+		emptyReturnTransitHours: emptyReturnTransitHours,
 	}
+}
+
+// emptyReturnETA estimates when a driver on empty return will arrive back at
+// their BOL's originating warehouse. v1.4 uses a fixed transit-time constant;
+// originWarehouseID is threaded through unused so a future distance-based
+// calculation can replace the body without changing the call site.
+func emptyReturnETA(lastStopConfirmedAt time.Time, originWarehouseID string, transitHours float64) time.Time {
+	_ = originWarehouseID
+	return lastStopConfirmedAt.Add(time.Duration(transitHours * float64(time.Hour)))
+}
+
+// pairingActive reports whether a dead-head pairing has been secured (and not
+// cancelled) for the given active BOL.
+func pairingActive(pairing *models.PlanBOLPairing) bool {
+	return pairing != nil && pairing.Status != models.PairingStatusCancelled
+}
+
+// pairingAtRisk reports whether an in-transit assignment has entered the
+// DEADHEAD_CUTOFF_MINUTES window before its estimated fulfillment time with no
+// dead-head pairing secured yet (ARCHITECTURE.md §5). Estimated fulfillment is
+// derived from DepartedAt + EstimatedRunHours — there is no live location
+// tracking, so this is the same fixed-estimate approach used elsewhere on the
+// board (e.g. Empty Return ETA).
+func (s *WhiteboardService) pairingAtRisk(ctx context.Context, a *models.DriverBOLAssignment) bool {
+	if a.DepartedAt == nil || a.EstimatedRunHours == nil {
+		return false
+	}
+	estFulfillAt := a.DepartedAt.Add(time.Duration(*a.EstimatedRunHours * float64(time.Hour)))
+	if time.Until(estFulfillAt) > s.cutoffWindow {
+		return false
+	}
+	pairing, _ := s.pairingRepo.GetByActiveBOL(ctx, a.PlanBOLID)
+	return !pairingActive(pairing)
 }
 
 // GetBoardState assembles the full board from live data.
@@ -273,16 +333,20 @@ func (s *WhiteboardService) GetBoardState(ctx context.Context) (*BoardState, err
 
 		switch {
 		case a.TransferredAt != nil:
-			// Outgoing driver completed their segment via handoff; now doing transfer deadhead.
-			expiresAt := a.TransferredAt.Add(s.deadheadSearchWindow)
-			board.Delivered = append(board.Delivered, &DeliveredCard{
-				Assignment:              a,
-				Driver:                  driver,
-				PlanBOL:                 bol,
-				Equipment:               equip,
-				DeadheadWindowExpiresAt: expiresAt,
-				DeadheadWindowRemaining: time.Until(expiresAt),
-				IsTransferDeadhead:      true,
+			// Outgoing driver completed their segment via handoff — the BOL itself
+			// continues under the incoming driver, so it does not get a Delivered
+			// close-out card here. This driver personally still needs a dead-head
+			// routing decision. Per-assignment pairing lookup isn't modeled (pairings
+			// are keyed by BOL, not by driver segment), so a transferred-out driver
+			// routes straight to Empty Return — a known v1.4 simplification pending a
+			// pairing-per-assignment model.
+			eta := emptyReturnETA(*a.TransferredAt, bol.OriginatingWhID, s.emptyReturnTransitHours)
+			board.Available.EmptyReturn = append(board.Available.EmptyReturn, &EmptyReturnCard{
+				Driver:                 driver,
+				OriginWarehouseID:      bol.OriginatingWhID,
+				LastStopConfirmedAt:    *a.TransferredAt,
+				ETA:                    eta,
+				PairingWindowExpiresAt: a.TransferredAt.Add(s.deadheadSearchWindow),
 			})
 
 		case a.FulfilledAt == nil:
@@ -299,6 +363,7 @@ func (s *WhiteboardService) GetBoardState(ctx context.Context) (*BoardState, err
 				HOSPillLabel:      pillLabel,
 				HOSWindow:         hosWindow,
 				IsCustodyTransfer: a.SegmentStartStopID != nil,
+				PairingAtRisk:     s.pairingAtRisk(ctx, a),
 			}
 			if hosWindow != nil && hosWindow.MandatedStopAt != nil {
 				card.MandatedStopAt = hosWindow.MandatedStopAt
@@ -309,15 +374,27 @@ func (s *WhiteboardService) GetBoardState(ctx context.Context) (*BoardState, err
 			}
 
 		default:
-			expiresAt := a.FulfilledAt.Add(s.deadheadSearchWindow)
+			// Last stop confirmed. BOL enters close-out review — driver and equipment
+			// have already decoupled (equipment's own routing happens in the Fulfill
+			// handler). Driver routes to a secured dead-head run (no board card needed
+			// beyond the pairing itself) or, if the contract was never secured, to
+			// Empty Return (ARCHITECTURE.md §4-§5).
 			board.Delivered = append(board.Delivered, &DeliveredCard{
-				Assignment:              a,
-				Driver:                  driver,
-				PlanBOL:                 bol,
-				Equipment:               equip,
-				DeadheadWindowExpiresAt: expiresAt,
-				DeadheadWindowRemaining: time.Until(expiresAt),
+				PlanBOL:             bol,
+				LastStopConfirmedAt: *a.FulfilledAt,
 			})
+
+			pairing, _ := s.pairingRepo.GetByActiveBOL(ctx, a.PlanBOLID)
+			if !pairingActive(pairing) {
+				eta := emptyReturnETA(*a.FulfilledAt, bol.OriginatingWhID, s.emptyReturnTransitHours)
+				board.Available.EmptyReturn = append(board.Available.EmptyReturn, &EmptyReturnCard{
+					Driver:                 driver,
+					OriginWarehouseID:      bol.OriginatingWhID,
+					LastStopConfirmedAt:    *a.FulfilledAt,
+					ETA:                    eta,
+					PairingWindowExpiresAt: a.FulfilledAt.Add(s.deadheadSearchWindow),
+				})
+			}
 		}
 	}
 
@@ -458,7 +535,7 @@ func (s *WhiteboardService) GetAlerts(ctx context.Context) ([]*BoardAlert, error
 	var alerts []*BoardAlert
 	now := time.Now()
 
-	for _, card := range board.InDelivery.InTransit {
+	for _, card := range append(append([]*InDeliveryCard{}, board.InDelivery.InTransit...), board.InDelivery.MandatedStop...) {
 		if card.HOSStatus == HOSStatusYellow || card.HOSStatus == HOSStatusRed {
 			driverID := card.Driver.ID
 			assignID := card.Assignment.ID
@@ -467,6 +544,19 @@ func (s *WhiteboardService) GetAlerts(ctx context.Context) ([]*BoardAlert, error
 				AlertType:    AlertTypeHOSWarning,
 				Severity:     AlertSeverityWarning,
 				Message:      fmt.Sprintf("Driver %s is approaching HOS limit", card.Driver.Name),
+				DriverID:     &driverID,
+				AssignmentID: &assignID,
+				CreatedAt:    now,
+			})
+		}
+		if card.PairingAtRisk {
+			driverID := card.Driver.ID
+			assignID := card.Assignment.ID
+			alerts = append(alerts, &BoardAlert{
+				ID:           uuid.New(),
+				AlertType:    AlertTypePairingAtRisk,
+				Severity:     AlertSeverityWarning,
+				Message:      fmt.Sprintf("Driver %s enters the dead-head cutoff window with no pairing secured", card.Driver.Name),
 				DriverID:     &driverID,
 				AssignmentID: &assignID,
 				CreatedAt:    now,
@@ -511,18 +601,17 @@ func (s *WhiteboardService) GetAlerts(ctx context.Context) ([]*BoardAlert, error
 	}
 
 	const expiringThreshold = time.Hour
-	for _, card := range board.Delivered {
-		if card.DeadheadWindowRemaining <= expiringThreshold {
+	for _, card := range board.Available.EmptyReturn {
+		remaining := time.Until(card.PairingWindowExpiresAt)
+		if remaining > 0 && remaining <= expiringThreshold {
 			driverID := card.Driver.ID
-			assignID := card.Assignment.ID
 			alerts = append(alerts, &BoardAlert{
-				ID:           uuid.New(),
-				AlertType:    AlertTypeExpiringDeadhead,
-				Severity:     AlertSeverityWarning,
-				Message:      fmt.Sprintf("Dead-head window expiring for driver %s (%.0f minutes remaining)", card.Driver.Name, card.DeadheadWindowRemaining.Minutes()),
-				DriverID:     &driverID,
-				AssignmentID: &assignID,
-				CreatedAt:    now,
+				ID:        uuid.New(),
+				AlertType: AlertTypeExpiringDeadhead,
+				Severity:  AlertSeverityWarning,
+				Message:   fmt.Sprintf("Empty-return driver %s — pairing window closes in %.0f minutes", card.Driver.Name, remaining.Minutes()),
+				DriverID:  &driverID,
+				CreatedAt: now,
 			})
 		}
 	}

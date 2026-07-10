@@ -28,6 +28,9 @@ type EquipmentRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Equipment, error)
 	GetAll(ctx context.Context) ([]*models.Equipment, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status models.EquipmentStatus) error
+	// SetEmptyReturnUntil marks equipment as still Assigned but returning empty,
+	// estimated available again at `until`. Status is left unchanged.
+	SetEmptyReturnUntil(ctx context.Context, id uuid.UUID, until time.Time) error
 	CreateMaintenanceRecord(ctx context.Context, r *models.MaintenanceRecord) error
 	GetActiveMaintenanceByEquipment(ctx context.Context, equipmentID uuid.UUID) (*models.MaintenanceRecord, error)
 	ResolveMaintenanceRecord(ctx context.Context, id uuid.UUID, completedAt time.Time) error
