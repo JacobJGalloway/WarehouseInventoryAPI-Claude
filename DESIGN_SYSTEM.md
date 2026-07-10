@@ -587,12 +587,34 @@ Card borders on the dispatch board carry semantic weight — they are not decora
 
 ---
 
+## Accessibility (v1.4)
+
+Audited and fixed on the Dispatch Whiteboard (`dispatch_board.html`) — the only surface with a full WCAG AA + ARIA pass so far. The patterns below are the intended standard for any future surface (including Switchyard.UI, which hasn't had this pass yet).
+
+### Contrast — text-safe token variants
+
+The Whiteboard's dark/light theme tokens (`--muted`, `--accent`, `--warn`, `--danger`, `--ok` in `dispatch_board.html`'s own `:root`/`[data-theme="light"]` block — **not** the same values as `--dp-*` above, the Go template has its own local token set) were re-lit for 4.5:1 text contrast: lightness-only adjustments in dark mode, darkened in light mode, same hue/saturation preserved in both. Don't hand-pick a "close enough" status color for new text on the board — verify against the actual background it sits on.
+
+**Status pills specifically need a separate text token from the dot.** A pill's colored dot is a small marker that can stay fully saturated (it's paired with a text label, so color is never the sole indicator — WCAG 1.4.1 is satisfied structurally). But reusing that same saturated color as the pill's *text* color against the pill's own lightly-tinted fill does not reliably clear 4.5:1 in either theme — the dark-mode gap was as bad as 1.4:1. Give every pill tone a dedicated `--pill-<tone>-text` token, solved independently against the actual pill fill, distinct from `--pill-<tone>-dot`.
+
+### ARIA — cards and regions
+
+- **Prefer `role="group"` over `role="region"` for repeatable widget sections.** A dispatch board column or card sub-section is not a page landmark — it's one of several structurally-similar parts of a single widget. Stacking many `role="region"` landmarks on one page (the Whiteboard originally had 11: 7 columns + 4 sub-sections) is a documented WAI-ARIA anti-pattern and was confirmed in a real screen-reader session to stall Narrator's continuous-read at the first landmark boundary — Tab and mouse-click focus both worked fine regardless, since only continuous/auto-read traversal is landmark-sensitive. Reserve `role="region"` for genuinely significant, one-off page sections.
+- **A card with a summarizing `aria-label` must hide its own visible children from the accessibility tree**, or a screen reader's continuous read can still land on an individual child (a chip, a pill) as a separate stop instead of stopping at the card's label. Wrap the card's inner markup in a single `<div aria-hidden="true">` — safe specifically because the `aria-label` already covers everything inside it in words; this is not a general-purpose pattern for hiding content that has no textual equivalent elsewhere.
+- Column/sub-section headers should be real heading elements (`<h2>`/`<h3>`) associated to their container via `aria-labelledby`, not just visually-styled `<div>`s.
+- Every icon-only button needs `aria-label`; a decorative icon sitting next to a visible text label (like the theme toggle) should be `aria-hidden="true"` so it isn't announced redundantly alongside the button's own label.
+- A skip-nav link (`<a href="#main-board">Skip to main content</a>`, first in `<body>`, offscreen until `:focus`) should target a real `<main>` landmark wrapping the primary content area.
+
+**Verification note:** `go build` and `go test` do not catch either HTML structural bugs (a mismatched closing tag) or AT-behavioral bugs (landmark overuse, redundant child announcements) — neither parses or renders the template. Both classes of bug were only caught by fetching the live-rendered page and, for the ARIA-specific issues, an actual screen-reader session. Treat "builds and passes tests" as a floor for markup/accessibility changes, not confirmation of correctness.
+
+---
+
 ## What Is Not Built Yet
 
 - Customer-facing Sales UI (checkout flow)
 - Inventory withdrawal UI
 - Analytics endpoints and Dashboard reports (placeholder: `<p>Company reports coming soon.</p>`)
 - Scalar API doc branding
-- Light mode for Switchyard-Go (scheduled for v1.2)
 - System-wide theme preference synced via Auth0 (v1.x)
+- Full WCAG AA + ARIA pass for Switchyard.UI (React app) — the v1.4 accessibility work only covered the Dispatch Whiteboard; see [Accessibility](#accessibility-v14) above for the patterns to carry over
 - Full-name SVG assets with text outlined to paths (v1.2 asset task)

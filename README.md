@@ -130,18 +130,22 @@ Both APIs use Auth0 JWT bearer authentication. Permissions are claim-based:
 
 ## Running the System
 
+Postgres must be up before *any* backend service starts — both .NET APIs and the Go backend connect to it on startup and will fail if it isn't running yet.
+
 ```bash
-# APIs (run each in a separate terminal)
+# 1. Postgres first (docker-compose.yml at project root) — required by both .NET APIs and Go
+docker compose up -d
+
+# 2. .NET APIs (run each in a separate terminal)
 dotnet run --project Switchyard.InventoryAPI
 dotnet run --project Switchyard.LogisticsAPI
 
-# Go support services — start Postgres first (docker-compose.yml at project root)
-docker compose up -d
+# 3. Go backend
 cd Switchyard-Go
 Get-Content .env | Where-Object { $_ -notmatch '^\s*#' -and $_ -match '=' } | ForEach-Object { $k,$v = $_ -split '=',2; Set-Item "Env:$($k.Trim())" $v.Trim() }
 go run ./cmd/main.go
 
-# UI
+# 4. UI
 cd Switchyard.UI
 npm run dev
 
@@ -157,14 +161,14 @@ go test ./...
 ## Wanted Features
 
 ### v1.4 Wanted Features - Demo Stable Hardening / pilot-client ready
-- [ ] Empty Return board state — new Available sub-section for drivers on empty return to originating warehouse; ETA visible for pre-planning next BOL assignment
-- [ ] Delivered column redesign — BOL-only close-out card; driver and equipment decouple from the BOL at last stop confirmation and route independently to Empty Return / Available / Maintenance; Delivered represents dispatch review, client notification, and final paperwork before archiving
-- [ ] Deadhead pairing — enforce `DEADHEAD_CUTOFF_MINUTES` window at the board level; pairing must be secured before driver reaches last stop or contract is voided; driver routes to Empty Return on last stop confirmation
-- [ ] Rolling refresh tokens for Auth0 sessions in place of fixed-expiry client secrets
-- [ ] Color contrast audit (WCAG AA) — verify all text/bg combinations across light and dark themes
-- [ ] ARIA compliance audit — board columns, cards, icon-only buttons, skip-nav
-- [ ] Document dispatch board card border language in a design note — border present = status alert (danger/warn/ok variants); no border = clean/good status. Borders carry semantic weight and should not be used decoratively.
-- [ ] CQRS read replica hardening — provision real Postgres read replicas for `switchyard_inventory` and `switchyard_logistics`; dev currently points read connections at the write database as a stand-in.
+- [x] Empty Return board state — new Available sub-section for drivers on empty return to originating warehouse; ETA visible for pre-planning next BOL assignment
+- [x] Delivered column redesign — BOL-only close-out card; driver and equipment decouple from the BOL at last stop confirmation and route independently to Empty Return / Available / Maintenance; Delivered represents dispatch review, client notification, and final paperwork before archiving
+- [x] Deadhead pairing — enforce `DEADHEAD_CUTOFF_MINUTES` window at the board level; pairing must be secured before driver reaches last stop or contract is voided; driver routes to Empty Return on last stop confirmation
+- [x] Rolling refresh tokens for Auth0 sessions in place of fixed-expiry client secrets — code complete (`useRefreshTokens`, no fixed-expiry logic remaining); Auth0 dashboard-side settings (Refresh Token Rotation, expiration windows) still need confirming outside of code
+- [x] Color contrast audit (WCAG AA) — verify all text/bg combinations across light and dark themes
+- [x] ARIA compliance audit — board columns, cards, icon-only buttons, skip-nav; verified with a live Narrator (screen reader) session, not just static review
+- [x] Document dispatch board card border language in a design note — border present = status alert (danger/warn/ok variants); no border = clean/good status. Borders carry semantic weight and should not be used decoratively.
+- [x] CQRS read replica hardening — separate Postgres read replica instances stood up for both .NET (`switchyard_inventory_read`, `switchyard_logistics_read`) and Go (`switchyard_read`, cross-instance logical replication)
 
 ### Backlog
 - [ ] Read replica health endpoint — expose sync lag and InSync status
